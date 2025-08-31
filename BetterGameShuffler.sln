@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36414.22 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterGameShuffler", "BetterGameShuffler\BetterGameShuffler.csproj", "{B0FE5779-DB73-4AC7-8E12-BE18DB53CEE9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B0FE5779-DB73-4AC7-8E12-BE18DB53CEE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B0FE5779-DB73-4AC7-8E12-BE18DB53CEE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B0FE5779-DB73-4AC7-8E12-BE18DB53CEE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B0FE5779-DB73-4AC7-8E12-BE18DB53CEE9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EE284AB4-232E-4686-A38C-E23B77F79297}
+	EndGlobalSection
+EndGlobal
