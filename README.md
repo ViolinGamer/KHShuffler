@@ -22,6 +22,7 @@
    - ** Red = Square Enix games** (gentle priority-only)
    - ** White = UE4/Other games** (standard thread suspension)
    - ** Yellow = No-suspend mode** (minimal intervention)
+5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using Direct9/DirectX, the game will crash.
 
 ### 3. Configure Settings
 - **Min/Max Seconds**: Set the switching interval range
@@ -36,6 +37,7 @@
 
 ## Successfully Tested Games
 - KINGDOM HEARTS FINAL MIX (Square Enix)
+- KINGDOM HEARTS Chain of Memories (Bizhawk, using OpenGL)
 - KINGDOM HEARTS Re:Chain of Memories (Square Enix)
 - KINGDOM HEARTS II FINAL MIX (Square Enix)
 - KINGDOM HEARTS 358/2 DAYS (MelonMix)
@@ -45,6 +47,7 @@
 - KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
 - KINGDOM HEARTS III (UE4)
 - KINGDOM HEARTS Melody of Memory (Unity)
+- KINGDOM HEARTS Dark Road (Bluestacks, using OpenGL)
 
 ## Key Features
 - **Complete Audio Control**: Unity games are completely silent when suspended
@@ -75,6 +78,7 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
