@@ -189,7 +189,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "PC Game Shuffler";
+        Text = "KH Shuffler";
         Width = 1200;
         Height = 600;
 
@@ -625,7 +625,7 @@ public class MainForm : Form
         Debug.WriteLine($"Starting shuffle with {_targetWindows.Count} windows");
         
         this.WindowState = FormWindowState.Minimized;
-        this.Text = "PC Game Shuffler - Shuffling...";
+        this.Text = "KH Shuffler - Shuffling...";
         
         _startButton.Enabled = false;
         _stopButton.Enabled = true;
@@ -647,7 +647,7 @@ public class MainForm : Form
         _isShuffling = false;
         
         this.WindowState = FormWindowState.Normal;
-        this.Text = "PC Game Shuffler";
+        this.Text = "KH Shuffler";
         
         ResumeAllTargetProcesses();
         
