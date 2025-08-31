@@ -1,11 +1,11 @@
-# ?? Better Game Shuffler - Release Package
+# Better Game Shuffler - Release Package
 
-## ?? Package Contents
+## Package Contents
 - `BetterGameShuffler.exe` - Main application (self-contained)
 - `COMPLETE_SUCCESS_DOCUMENTATION.md` - Full technical documentation
 - `README.md` - Quick start guide
 
-## ?? Quick Start
+## Quick Start
 
 ### 1. Launch the Application
 - Double-click `BetterGameShuffler.exe`
@@ -16,10 +16,10 @@
 2. Click "Refresh" to scan for running games
 3. Select games from the list and click "Add Selected"
 4. Games will be automatically color-coded by engine type:
-   - **?? Blue = Unity games** (advanced audio stopping)
-   - **?? Red = Square Enix games** (gentle priority-only)
-   - **? White = UE4/Other games** (standard thread suspension)
-   - **?? Yellow = No-suspend mode** (minimal intervention)
+   - ** Blue = Unity games** (advanced audio stopping)
+   - ** Red = Square Enix games** (gentle priority-only)
+   - ** White = UE4/Other games** (standard thread suspension)
+   - ** Yellow = No-suspend mode** (minimal intervention)
 
 ### 3. Configure Settings
 - **Min/Max Seconds**: Set the switching interval range
@@ -33,24 +33,23 @@
 - Click "Stop" anytime to restore all games
 
 ## ? Successfully Tested Games
-- ? KINGDOM HEARTS Melody of Memory (Unity)
-- ? KINGDOM HEARTS III (UE4)
-- ? KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
-- ? KINGDOM HEARTS Dream Drop Distance (Square Enix)
-- ? KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
-- ? KINGDOM HEARTS II FINAL MIX (Square Enix)
-- ? KINGDOM HEARTS FINAL MIX (Square Enix)
-- ? KINGDOM HEARTS Re:Chain of Memories (Square Enix)
+ KINGDOM HEARTS FINAL MIX (Square Enix)
+ KINGDOM HEARTS Re:Chain of Memories (Square Enix)
+ KINGDOM HEARTS II FINAL MIX (Square Enix)
+ KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
+ KINGDOM HEARTS Dream Drop Distance (Square Enix)
+ KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
+ KINGDOM HEARTS III (UE4)
+ KINGDOM HEARTS Melody of Memory (Unity)
 
-## ?? Key Features
-- **Zero Crashes**: Tested extensively with 8 games simultaneously
+## Key Features
 - **Complete Audio Control**: Unity games are completely silent when suspended
 - **Perfect Focus Management**: All games properly clickable when active
 - **Automatic Engine Detection**: Smart classification with manual override
 - **Borderless Conversion**: Automatic fullscreen experience
 - **Efficient Performance**: Minimal system impact
 
-## ??? Troubleshooting
+##  Troubleshooting
 
 ### Game Not Switching Properly
 - Check that the game appears in the target list with correct color coding
@@ -67,10 +66,8 @@
 - Ensure no antivirus is blocking window manipulation
 - Check that games are not running in exclusive fullscreen mode
 
-## ?? Support
-For issues or questions, refer to the complete documentation in `COMPLETE_SUCCESS_DOCUMENTATION.md`.
-
 ---
-**Version**: 1.0 Final Release  
-**Tested**: January 2025  
+**Version**: 0.5.0 Beta Release  
+**Tested**: August 31st, 2025  
+
 **Compatibility**: Windows 10/11 x64
