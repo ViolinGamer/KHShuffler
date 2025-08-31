@@ -38,7 +38,9 @@
 - KINGDOM HEARTS FINAL MIX (Square Enix)
 - KINGDOM HEARTS Re:Chain of Memories (Square Enix)
 - KINGDOM HEARTS II FINAL MIX (Square Enix)
+- KINGDOM HEARTS 358/2 DAYS (MelonMix)
 - KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
+- KINGDOM HEARTS Re:coded (MelonMix)
 - KINGDOM HEARTS Dream Drop Distance (Square Enix)
 - KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
 - KINGDOM HEARTS III (UE4)
@@ -73,6 +75,7 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
