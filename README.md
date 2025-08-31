@@ -4,7 +4,8 @@
 - `BetterGameShuffler.exe` - Main application (self-contained)
 - `COMPLETE_SUCCESS_DOCUMENTATION.md` - Full technical documentation
 - `README.md` - Quick start guide
-- `steam_appid.txt` - Place this in your game installation folder to open the games directly (this is required to bypass the launcher and have multiple games open at the same time)
+- `steam_appid.txt` (KH1.5+2.5) - Place this in your game installation folder to open the games directly (this is required to bypass the launcher and have multiple games open at the same time)
+- `steam_appid.txt` (2.8)
 
 ## Quick Start
 
@@ -72,6 +73,7 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
