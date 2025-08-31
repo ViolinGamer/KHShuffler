@@ -23,6 +23,7 @@
    - ** White = UE4/Other games** (standard thread suspension)
    - ** Yellow = No-suspend mode** (minimal intervention)
 5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using Direct9/DirectX, the game will crash.
+6. If you're playing Melody of Memory, you will need to pause and unpause the game if you're in the middle of the song to resync the music with the gameplay. I'm hoping to fix this in the future, but no promises.
 
 ### 3. Configure Settings
 - **Min/Max Seconds**: Set the switching interval range
@@ -78,6 +79,7 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
