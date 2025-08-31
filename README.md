@@ -32,7 +32,7 @@
 - Games will switch automatically at random intervals
 - Click "Stop" anytime to restore all games
 
-## ? Successfully Tested Games
+## Successfully Tested Games
  KINGDOM HEARTS FINAL MIX (Square Enix)
  KINGDOM HEARTS Re:Chain of Memories (Square Enix)
  KINGDOM HEARTS II FINAL MIX (Square Enix)
@@ -71,3 +71,4 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
