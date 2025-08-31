@@ -33,14 +33,14 @@
 - Click "Stop" anytime to restore all games
 
 ## Successfully Tested Games
- KINGDOM HEARTS FINAL MIX (Square Enix)
- KINGDOM HEARTS Re:Chain of Memories (Square Enix)
- KINGDOM HEARTS II FINAL MIX (Square Enix)
- KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
- KINGDOM HEARTS Dream Drop Distance (Square Enix)
- KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
- KINGDOM HEARTS III (UE4)
- KINGDOM HEARTS Melody of Memory (Unity)
+- KINGDOM HEARTS FINAL MIX (Square Enix)
+- KINGDOM HEARTS Re:Chain of Memories (Square Enix)
+- KINGDOM HEARTS II FINAL MIX (Square Enix)
+- KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
+- KINGDOM HEARTS Dream Drop Distance (Square Enix)
+- KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
+- KINGDOM HEARTS III (UE4)
+- KINGDOM HEARTS Melody of Memory (Unity)
 
 ## Key Features
 - **Complete Audio Control**: Unity games are completely silent when suspended
@@ -71,4 +71,5 @@
 **Tested**: August 31st, 2025  
 
 **Compatibility**: Windows 10/11 x64
+
 
