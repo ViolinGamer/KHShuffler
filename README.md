@@ -17,9 +17,9 @@
 2. Click "Refresh" to scan for running games
 3. Select games from the list and click "Add"
 4. Games will be automatically color-coded by engine type:
-   - ** Blue = Unity games** (Unity-specific suspension)
-   - ** Red = Square Enix games** (gentle priority-only suspension)
-   - ** White = UE4/Other games** (standard thread suspension)
+   -  Blue = Unity games (Unity-specific suspension)
+   -  Red = Square Enix games (gentle priority-only suspension)
+   -  White = UE4/Other games (standard thread suspension)
 5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using DirectX, the game will crash.
 6. If you're playing Melody of Memory, you will need to pause and unpause the game if you're in the middle of the song to resync the music with the gameplay. I'm hoping to fix this in the future, but no promises.
 
@@ -59,6 +59,7 @@
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
