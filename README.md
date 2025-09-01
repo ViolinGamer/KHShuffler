@@ -10,19 +10,17 @@
 ## Quick Start
 
 ### 1. Launch the Application
-- Double-click `BetterGameShuffler.exe`
-- No .NET installation required (self-contained)
+- Run `BetterGameShuffler.exe`
 
 ### 2. Add Your Games
-1. Start your games first (they can run simultaneously)
+1. Start your games first, I recommend clicking on New Game in each game to prevent accidentally pressing "Back" on the title screen during shuffling
 2. Click "Refresh" to scan for running games
-3. Select games from the list and click "Add Selected"
+3. Select games from the list and click "Add"
 4. Games will be automatically color-coded by engine type:
-   - ** Blue = Unity games** (advanced audio stopping)
-   - ** Red = Square Enix games** (gentle priority-only)
+   - ** Blue = Unity games** (Unity-specific suspension)
+   - ** Red = Square Enix games** (gentle priority-only suspension)
    - ** White = UE4/Other games** (standard thread suspension)
-   - ** Yellow = No-suspend mode** (minimal intervention)
-5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using Direct9/DirectX, the game will crash.
+5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using DirectX, the game will crash.
 6. If you're playing Melody of Memory, you will need to pause and unpause the game if you're in the middle of the song to resync the music with the gameplay. I'm hoping to fix this in the future, but no promises.
 
 ### 3. Configure Settings
@@ -35,6 +33,7 @@
 - The application will minimize to taskbar
 - Games will switch automatically at random intervals
 - Click "Stop" anytime to restore all games
+- If you close the shuffler without pressing Stop first, the games will remain permanently suspended, you'll have to use Task Manager to end their task
 
 ## Successfully Tested Games
 - KINGDOM HEARTS FINAL MIX (Square Enix)
@@ -49,36 +48,18 @@
 - KINGDOM HEARTS III (UE4)
 - KINGDOM HEARTS Melody of Memory (Unity)
 - KINGDOM HEARTS Dark Road (Bluestacks, using OpenGL)
-
-## Key Features
-- **Complete Audio Control**: Unity games are completely silent when suspended
-- **Perfect Focus Management**: All games properly clickable when active
-- **Automatic Engine Detection**: Smart classification with manual override
-- **Borderless Conversion**: Automatic fullscreen experience
-- **Efficient Performance**: Minimal system impact
+  
 
 ##  Troubleshooting
 
-### Game Not Switching Properly
-- Check that the game appears in the target list with correct color coding
-- Try right-clicking the game to cycle through suspension modes
-- Ensure no modal dialogs are blocking the game window
-
-### Audio Still Playing (Unity Games)
-- Verify the game shows **blue background** (Unity mode)
-- If not blue, right-click and cycle until it shows blue
-- Check debug output for "100% thread suspension" messages
-
 ### Focus Issues
-- Try stopping and restarting the shuffling session
+- Try stopping and restarting the shuffler and re-adding all of the games 
 - Ensure no antivirus is blocking window manipulation
 - Check that games are not running in exclusive fullscreen mode
-
----
-**Version**: 0.5.0 Beta Release  
-**Tested**: August 31st, 2025  
+- Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
