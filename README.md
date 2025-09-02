@@ -1,4 +1,4 @@
-# Better Game Shuffler - Release Package
+# KHShuffler - Release Package
 
 ## Package Contents
 - `BetterGameShuffler.exe` - Main application (self-contained)
@@ -58,6 +58,7 @@
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
