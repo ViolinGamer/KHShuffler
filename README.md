@@ -4,8 +4,8 @@
 - `BetterGameShuffler.exe` - Main application (self-contained)
 - `COMPLETE_SUCCESS_DOCUMENTATION.md` - Full technical documentation
 - `README.md` - Quick start guide
-- `steam_appid.txt` (KH1.5+2.5) - Place this in your game installation folder to open the games directly (this is required to bypass the launcher and have multiple games open at the same time)
-- `steam_appid.txt` (2.8)
+- `steam_appid1.5+2.5.txt` - Place this in your game installation folder for Kingdom Hearts HD 1.5 + 2.5 ReMIX and rename it to steam_appid.txt to open the games directly through their exe (this is required to bypass the launcher and have multiple games open at the same time)
+- `steam_appid2.8.txt` - Place this in your game installation folder for Kingdom Hearts HD 2.8 Final Chapter Prologue and rename it to steam_appid.txt to open the games directly through their exe (this is required to bypass the launcher and have multiple games at the same time)
 
 ## Quick Start
 
@@ -26,14 +26,13 @@
 ### 3. Configure Settings
 - **Min/Max Seconds**: Set the switching interval range
 - **Force Borderless**: Automatically convert games to borderless fullscreen
-- **Right-click games**: Cycle through suspension modes if needed
 
 ### 4. Start Shuffling
 - Click "Start" to begin automatic game switching
 - The application will minimize to taskbar
 - Games will switch automatically at random intervals
+- Click "Pause" to pause the shuffle timer, and click "Resume" to resume shuffling
 - Click "Stop" anytime to restore all games
-- If you close the shuffler without pressing Stop first, the games will remain permanently suspended, you'll have to use Task Manager to end their task
 
 ## Successfully Tested Games
 - KINGDOM HEARTS FINAL MIX (Square Enix)
@@ -59,6 +58,7 @@
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
