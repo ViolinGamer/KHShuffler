@@ -2,18 +2,62 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace BetterGameShuffler;
 
 internal static class Program
 {
+    public const string Version = "v1.0.0";
+
     [STAThread]
     static void Main()
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new MainForm());
+    }
+}
+
+// Settings manager for persistent user preferences
+public static class Settings
+{
+    private const string RegistryKeyPath = @"HKEY_CURRENT_USER\Software\BetterGameShuffler";
+
+    public static bool DarkMode
+    {
+        get
+        {
+            try
+            {
+                var value = Registry.GetValue(RegistryKeyPath, "DarkMode", 0);
+                // Handle both boolean and integer values for compatibility
+                return value switch
+                {
+                    bool b => b,
+                    int i => i != 0,
+                    _ => false
+                };
+            }
+            catch
+            {
+                return false; // Default to light mode if registry read fails
+            }
+        }
+        set
+        {
+            try
+            {
+                // Store as integer for better registry compatibility
+                Registry.SetValue(RegistryKeyPath, "DarkMode", value ? 1 : 0, RegistryValueKind.DWord);
+            }
+            catch
+            {
+                // Silently fail if registry write fails
+            }
+        }
     }
 }
 
@@ -66,6 +110,10 @@ internal static class NativeMethods
     public static readonly IntPtr HWND_TOP = new IntPtr(0);
     public const uint SWP_FRAMECHANGED = 0x0020;
     public const uint SWP_SHOWWINDOW = 0x0040;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOZORDER = 0x0004;
+    public const uint SWP_NOACTIVATE = 0x0010;
     public const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
 
     [DllImport("user32.dll")]
@@ -163,12 +211,13 @@ public class WindowItem
 
 public class MainForm : Form
 {
-    private readonly ListBox _processList = new() { SelectionMode = SelectionMode.MultiExtended, Dock = DockStyle.Fill };
+    private readonly ListView _processList = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, CheckBoxes = true };
     private readonly Button _refreshButton = new() { Text = "Refresh" };
-    private readonly Button _addButton = new() { Text = "Add Selected" };
+    private readonly Button _addButton = new() { Text = "Add Checked" };
     private readonly Button _removeButton = new() { Text = "Remove Selected" };
     private readonly Button _startButton = new() { Text = "Start" };
     private readonly Button _stopButton = new() { Text = "Stop", Enabled = false };
+    private readonly Button _pauseButton = new() { Text = "Pause", Enabled = false };
     private readonly NumericUpDown _minSeconds = new() { Minimum = 1, Maximum = 3600, Value = 10 };
     private readonly NumericUpDown _maxSeconds = new() { Minimum = 1, Maximum = 7200, Value = 10 };
     private readonly ListView _targets = new() { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, CheckBoxes = true };
@@ -181,23 +230,49 @@ public class MainForm : Form
     private readonly ConcurrentDictionary<int, bool> _suspendedProcesses = new();
 
     private bool _isShuffling = false;
+    private bool _isPaused = false;
     private int _currentIndex = -1;
     private DateTime _nextSwitch = DateTime.MinValue;
+    private DateTime _pausedAt = DateTime.MinValue;
+    private TimeSpan _remainingTime = TimeSpan.Zero;
     private bool _isSwitching = false;
 
-    private readonly CheckBox _forceBorderless = new() { Text = "Force Borderless", Checked = true };
+    private readonly CheckBox _forceBorderless = new() { Text = "Force borderless fullscreen", Checked = true, AutoSize = true };
+    private readonly SlidingToggle _darkModeToggle = new();
+
+    // Dark mode color schemes
+    private static readonly Color DarkBackground = Color.FromArgb(32, 32, 32);
+    private static readonly Color DarkSecondary = Color.FromArgb(45, 45, 48);
+    private static readonly Color DarkText = Color.FromArgb(220, 220, 220);
+    private static readonly Color DarkBorder = Color.FromArgb(63, 63, 70);
+
+    // CRITICAL FIX: Store original window styles to prevent resizing issues
+    private readonly ConcurrentDictionary<IntPtr, int> _originalWindowStyles = new();
 
     public MainForm()
     {
-        Text = "PC Game Shuffler";
+        Text = $"KHShuffler {Program.Version}";
         Width = 1200;
         Height = 600;
 
+        // Set up process list columns
+        _processList.Columns.Add("Title", 400);
+        _processList.Columns.Add("Process", 150);
+        _processList.Columns.Add("PID", 80);
+
+        // Set up targets list columns
         _targets.Columns.Add("Title", 500);
         _targets.Columns.Add("Process", 200);
         _targets.Columns.Add("PID", 100);
 
-        var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 300, Padding = new Padding(8) };
+        // Configure process list behavior
+        _processList.ItemCheck += ProcessList_ItemCheck;
+        _processList.MouseClick += ProcessList_MouseClick;
+        _processList.HideSelection = true; // Hide blue selection highlighting
+        _processList.MultiSelect = false; // Disable multi-selection
+        _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
+
+        var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
         rightPanel.Controls.Add(new Label { Text = "Min seconds" });
         rightPanel.Controls.Add(_minSeconds);
         rightPanel.Controls.Add(new Label { Text = "Max seconds" });
@@ -207,8 +282,10 @@ public class MainForm : Form
         rightPanel.Controls.Add(_removeButton);
         rightPanel.Controls.Add(_startButton);
         rightPanel.Controls.Add(_stopButton);
+        rightPanel.Controls.Add(_pauseButton);
         rightPanel.Controls.Add(_forceBorderless);
-        
+        rightPanel.Controls.Add(_darkModeToggle);
+
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300 };
         split.Panel1.Controls.Add(_processList);
         split.Panel2.Controls.Add(_targets);
@@ -221,8 +298,17 @@ public class MainForm : Form
         _removeButton.Click += (_, __) => RemoveSelectedTargets();
         _startButton.Click += (_, __) => StartShuffle();
         _stopButton.Click += (_, __) => StopShuffle();
+        _pauseButton.Click += (_, __) => TogglePause();
+        _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
 
         _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+
+        // Set up application exit handler for cleanup
+        Application.ApplicationExit += OnApplicationExit;
+
+        // Load and apply saved dark mode preference
+        _darkModeToggle.Checked = Settings.DarkMode;
+        ApplyTheme();
 
         RefreshProcesses();
     }
@@ -233,10 +319,10 @@ public class MainForm : Form
     {
         try
         {
-            if (!_timerShouldRun || _isSwitching) return;
-            
+            if (!_timerShouldRun || _isSwitching || _isPaused) return;
+
             var now = DateTime.UtcNow;
-            
+
             if (now >= _nextSwitch && !_isSwitching)
             {
                 try
@@ -262,7 +348,7 @@ public class MainForm : Form
     {
         var pName = processName.ToLower();
         var wTitle = windowTitle.ToLower();
-        
+
         return (pName.Contains("kh3") || pName.Contains("khiii") ||
                 wTitle.Contains("kingdom hearts iii") || wTitle.Contains("kingdom hearts 3") ||
                 wTitle.Contains("kh3") || wTitle.Contains("khiii")) ||
@@ -278,36 +364,36 @@ public class MainForm : Form
         try
         {
             Debug.WriteLine($"UE4 Kingdom Hearts detected - using SELECTIVE THREAD suspension for UE4 stability");
-            
+
             process.PriorityClass = ProcessPriorityClass.BelowNormal;
             Debug.WriteLine($"Set priority to BelowNormal for UE4 suspension");
-            
+
             int totalCores = Environment.ProcessorCount;
             int allowedCores = Math.Max(2, totalCores / 4);
             IntPtr affinityMask = (IntPtr)((1L << allowedCores) - 1);
             process.ProcessorAffinity = affinityMask;
             Debug.WriteLine($"Limited CPU affinity to {allowedCores} cores (out of {totalCores}) for UE4 suspension");
-            
+
             int totalThreads = process.Threads.Count;
             int maxThreadsToSuspend = Math.Min(50, (totalThreads * 30) / 100);
             Debug.WriteLine($"UE4 selective suspension: targeting {maxThreadsToSuspend} threads out of {totalThreads} for safe game pausing");
-            
+
             var allThreads = process.Threads.Cast<ProcessThread>()
                 .OrderByDescending(t => t.StartTime)
                 .ToList();
-            
-            var activeThreads = allThreads.Where(t => 
-                t.ThreadState == System.Diagnostics.ThreadState.Running || 
-                t.ThreadState == System.Diagnostics.ThreadState.Ready || 
+
+            var activeThreads = allThreads.Where(t =>
+                t.ThreadState == System.Diagnostics.ThreadState.Running ||
+                t.ThreadState == System.Diagnostics.ThreadState.Ready ||
                 t.ThreadState == System.Diagnostics.ThreadState.Standby).ToList();
-                
-            var waitThreads = allThreads.Where(t => 
+
+            var waitThreads = allThreads.Where(t =>
                 t.ThreadState == System.Diagnostics.ThreadState.Wait).ToList();
-            
+
             var threadsToSuspend = activeThreads.Concat(waitThreads).Take(maxThreadsToSuspend).ToList();
-            
+
             Debug.WriteLine($"UE4 thread selection: {activeThreads.Count} active, {waitThreads.Count} wait, targeting {threadsToSuspend.Count} total");
-            
+
             int suspended = 0;
             foreach (var thread in threadsToSuspend)
             {
@@ -323,7 +409,7 @@ public class MainForm : Form
                 }
                 catch { }
             }
-            
+
             Debug.WriteLine($"UE4 selective suspension: suspended {suspended} threads for safe game pausing");
             Debug.WriteLine($"UE4 suspension COMPLETED successfully");
             return true;
@@ -340,13 +426,13 @@ public class MainForm : Form
         try
         {
             Debug.WriteLine($"Resuming UE4 Kingdom Hearts process {process.Id}");
-            
+
             process.PriorityClass = ProcessPriorityClass.Normal;
-            
+
             int totalCores = Environment.ProcessorCount;
             IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
             process.ProcessorAffinity = fullAffinityMask;
-            
+
             int resumed = 0;
             foreach (ProcessThread thread in process.Threads)
             {
@@ -362,7 +448,7 @@ public class MainForm : Form
                 }
                 catch { }
             }
-            
+
             Debug.WriteLine($"UE4 resume completed: {resumed} threads resumed, priority + CPU affinity restored");
             return true;
         }
@@ -413,9 +499,9 @@ public class MainForm : Form
         {
             using var process = Process.GetProcessById(pid);
             if (process.HasExited) return false;
-            
+
             bool isUE4KH = IsUE4KingdomHearts(process.ProcessName, process.MainWindowTitle);
-            
+
             if (isUE4KH)
             {
                 return SuspendUE4ProcessSelectively(process);
@@ -423,7 +509,7 @@ public class MainForm : Form
             else
             {
                 process.PriorityClass = ProcessPriorityClass.Idle;
-                
+
                 int suspended = 0;
                 foreach (ProcessThread thread in process.Threads)
                 {
@@ -456,9 +542,9 @@ public class MainForm : Form
         {
             using var process = Process.GetProcessById(pid);
             if (process.HasExited) return false;
-            
+
             bool isUE4KH = IsUE4KingdomHearts(process.ProcessName, process.MainWindowTitle);
-            
+
             if (isUE4KH)
             {
                 return ResumeUE4ProcessSelectively(process);
@@ -466,7 +552,7 @@ public class MainForm : Form
             else
             {
                 process.PriorityClass = ProcessPriorityClass.Normal;
-                
+
                 int resumed = 0;
                 foreach (ProcessThread thread in process.Threads)
                 {
@@ -511,7 +597,13 @@ public class MainForm : Form
                 procName = p.ProcessName;
             }
             catch { }
-            _processList.Items.Add(new WindowItem(h, title, procName, (int)pid));
+
+            var windowItem = new WindowItem(h, title, procName, (int)pid);
+            var lvi = new ListViewItem(title);
+            lvi.SubItems.Add(procName);
+            lvi.SubItems.Add(pid.ToString());
+            lvi.Tag = windowItem;
+            _processList.Items.Add(lvi);
         }
         Debug.WriteLine($"Refreshed: {_processList.Items.Count} windows");
     }
@@ -527,7 +619,7 @@ public class MainForm : Form
     {
         var length = NativeMethods.GetWindowTextLength(hWnd);
         if (length == 0) return string.Empty;
-        
+
         var builder = new StringBuilder(length + 1);
         NativeMethods.GetWindowText(hWnd, builder, builder.Capacity);
         return builder.ToString();
@@ -536,25 +628,42 @@ public class MainForm : Form
     private void AddSelectedProcesses()
     {
         var currentPid = Process.GetCurrentProcess().Id;
-        foreach (var sel in _processList.SelectedItems.Cast<WindowItem>())
+        var checkedItems = _processList.CheckedItems.Cast<ListViewItem>().ToList();
+
+        foreach (var item in checkedItems)
         {
+            var sel = (WindowItem)item.Tag!;
             if (sel.Pid == currentPid) continue;
             if (_targetWindows.Contains(sel.Handle)) continue;
-            
+
             _targetWindows.Add(sel.Handle);
-            
+
+            // CRITICAL FIX: Store original window style for proper restoration
+            try
+            {
+                var originalStyle = NativeMethods.GetWindowLong(sel.Handle, NativeMethods.GWL_STYLE);
+                _originalWindowStyles[sel.Handle] = originalStyle;
+                Debug.WriteLine($"Stored original style for {sel.Title}: 0x{originalStyle:X8}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Could not store window style for {sel.Title}: {ex.Message}");
+            }
+
             var lvi = new ListViewItem(sel.Title) { Checked = true };
             lvi.SubItems.Add(sel.ProcessName);
             lvi.SubItems.Add(sel.Pid.ToString());
             lvi.Tag = sel.Handle;
-            
+
             var mode = GetGameMode(sel.ProcessName, sel.Title);
             SetItemMode(lvi, mode);
-            
+
             _targets.Items.Add(lvi);
             _suspensionModeCache[sel.Handle] = mode;
-            
+
             Debug.WriteLine($"Added: {sel.Title} (Mode: {mode})");
+
+            item.Checked = false;
         }
     }
 
@@ -562,13 +671,13 @@ public class MainForm : Form
     {
         var pName = processName.ToLower();
         var wTitle = title.ToLower();
-        
+
         if (pName.Contains("melody") || wTitle.Contains("melody"))
             return SuspensionMode.Unity;
-            
+
         if (pName.Contains("final mix") || pName.Contains("chain of memories") || pName.Contains("dream drop"))
             return SuspensionMode.PriorityOnly;
-            
+
         return SuspensionMode.Normal;
     }
 
@@ -603,6 +712,7 @@ public class MainForm : Form
             _targetWindows.Remove(h);
             _targets.Items.Remove(item);
             _suspensionModeCache.TryRemove(h, out _);
+            _originalWindowStyles.TryRemove(h, out _); // CRITICAL FIX: Clean up stored styles
         }
     }
 
@@ -611,50 +721,176 @@ public class MainForm : Form
         return _suspensionModeCache.GetValueOrDefault(h, SuspensionMode.Normal);
     }
 
-    private void StartShuffle()
+    private void ProcessList_ItemSelectionChanged(object? sender, ListViewItemSelectionChangedEventArgs e)
     {
-        if (_targetWindows.Count == 0)
+        if (e.IsSelected)
         {
-            MessageBox.Show("Add at least one window.");
-            return;
+            e.Item.Selected = false;
         }
-        
-        _isShuffling = true;
-        _currentIndex = -1;
-        
-        Debug.WriteLine($"Starting shuffle with {_targetWindows.Count} windows");
-        
-        this.WindowState = FormWindowState.Minimized;
-        this.Text = "PC Game Shuffler - Shuffling...";
-        
-        _startButton.Enabled = false;
-        _stopButton.Enabled = true;
-        
-        _timerShouldRun = true;
-        _backgroundTimer.Change(0, 1000);
-        
-        ScheduleNextSwitch(immediate: true);
-        Debug.WriteLine("Background timer started");
     }
 
-    private void StopShuffle()
+    private void ProcessList_MouseClick(object? sender, MouseEventArgs e)
     {
-        Debug.WriteLine("Stopping shuffle");
-        
-        _timerShouldRun = false;
-        _backgroundTimer.Change(Timeout.Infinite, Timeout.Infinite);
-        
-        _isShuffling = false;
-        
-        this.WindowState = FormWindowState.Normal;
-        this.Text = "PC Game Shuffler";
-        
-        ResumeAllTargetProcesses();
-        
-        _startButton.Enabled = true;
-        _stopButton.Enabled = false;
-        
-        Debug.WriteLine("Background timer stopped");
+        if (e.Button == MouseButtons.Left)
+        {
+            var hitTest = _processList.HitTest(e.Location);
+            if (hitTest.Item != null)
+            {
+                hitTest.Item.Checked = !hitTest.Item.Checked;
+                hitTest.Item.Selected = false;
+            }
+        }
+    }
+
+    private void ProcessList_ItemCheck(object? sender, ItemCheckEventArgs e)
+    {
+        BeginInvoke(new Action(() =>
+        {
+            if (e.Index < _processList.Items.Count)
+            {
+                _processList.Items[e.Index].Selected = false;
+            }
+        }));
+    }
+
+    private void OnApplicationExit(object? sender, EventArgs e)
+    {
+        // Final cleanup when application is exiting
+        if (_isShuffling)
+        {
+            Debug.WriteLine("Application exit detected - performing final cleanup");
+            // Don't call ResumeAllTargetProcesses here - let Dispose handle it
+            // to prevent double cleanup
+        }
+    }
+    
+    private void ToggleDarkMode()
+    {
+        Settings.DarkMode = _darkModeToggle.Checked;
+        ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        if (_darkModeToggle.Checked)
+        {
+            ApplyDarkTheme();
+        }
+        else
+        {
+            ApplyLightTheme();
+        }
+    }
+
+    private void ApplyDarkTheme()
+    {
+        // Main form
+        BackColor = DarkBackground;
+        ForeColor = DarkText;
+
+        // Process list
+        _processList.BackColor = DarkSecondary;
+        _processList.ForeColor = DarkText;
+
+        // Targets list
+        _targets.BackColor = DarkSecondary;
+        _targets.ForeColor = DarkText;
+
+        // Right panel and controls
+        var rightPanel = (FlowLayoutPanel)Controls[1];
+        rightPanel.BackColor = DarkBackground;
+
+        foreach (Control control in rightPanel.Controls)
+        {
+            ApplyDarkThemeToControl(control);
+        }
+
+        // Split container
+        var split = (SplitContainer)Controls[0];
+        split.BackColor = DarkBorder;
+        split.Panel1.BackColor = DarkBackground;
+        split.Panel2.BackColor = DarkBackground;
+    }
+
+    private void ApplyLightTheme()
+    {
+        // Main form
+        BackColor = SystemColors.Control;
+        ForeColor = SystemColors.ControlText;
+
+        // Process list
+        _processList.BackColor = SystemColors.Window;
+        _processList.ForeColor = SystemColors.WindowText;
+
+        // Targets list
+        _targets.BackColor = SystemColors.Window;
+        _targets.ForeColor = SystemColors.WindowText;
+
+        // Right panel and controls
+        var rightPanel = (FlowLayoutPanel)Controls[1];
+        rightPanel.BackColor = SystemColors.Control;
+
+        foreach (Control control in rightPanel.Controls)
+        {
+            ApplyLightThemeToControl(control);
+        }
+
+        // Split container
+        var split = (SplitContainer)Controls[0];
+        split.BackColor = SystemColors.Control;
+        split.Panel1.BackColor = SystemColors.Control;
+        split.Panel2.BackColor = SystemColors.Control;
+    }
+
+    private void ApplyDarkThemeToControl(Control control)
+    {
+        switch (control)
+        {
+            case Button button:
+                button.BackColor = DarkSecondary;
+                button.ForeColor = DarkText;
+                button.FlatStyle = FlatStyle.Flat;
+                button.FlatAppearance.BorderColor = DarkBorder;
+                break;
+            case Label label:
+                label.ForeColor = DarkText;
+                break;
+            case NumericUpDown numericUpDown:
+                numericUpDown.BackColor = DarkSecondary;
+                numericUpDown.ForeColor = DarkText;
+                break;
+            case CheckBox checkBox:
+                checkBox.ForeColor = DarkText;
+                break;
+            case SlidingToggle toggle:
+                toggle.ForeColor = DarkText;
+                break;
+        }
+    }
+
+    private void ApplyLightThemeToControl(Control control)
+    {
+        switch (control)
+        {
+            case Button button:
+                button.BackColor = SystemColors.Control;
+                button.ForeColor = SystemColors.ControlText;
+                button.FlatStyle = FlatStyle.Standard;
+                break;
+            case Label label:
+                label.ForeColor = SystemColors.ControlText;
+                break;
+            case NumericUpDown numericUpDown:
+                numericUpDown.BackColor = SystemColors.Window;
+                numericUpDown.ForeColor = SystemColors.WindowText;
+                break;
+            case CheckBox checkBox:
+                checkBox.ForeColor = SystemColors.ControlText;
+                break;
+            case SlidingToggle toggle:
+                toggle.ForeColor = SystemColors.ControlText;
+                break;
+        }
     }
 
     private void ScheduleNextSwitch(bool immediate = false)
@@ -681,10 +917,10 @@ public class MainForm : Form
             try
             {
                 if (!NativeMethods.IsWindow(window)) continue;
-                
+
                 NativeMethods.GetWindowThreadProcessId(window, out var pid);
                 if (pid == 0) continue;
-                
+
                 var mode = GetSuspensionMode(window);
                 switch (mode)
                 {
@@ -696,7 +932,7 @@ public class MainForm : Form
                         ResumeProcessPriorityOnly((int)pid);
                         break;
                 }
-                
+
                 NativeMethods.ShowWindow(window, ShowWindowCommands.Restore);
             }
             catch (Exception ex)
@@ -704,17 +940,104 @@ public class MainForm : Form
                 Debug.WriteLine($"Resume error: {ex}");
             }
         }
-        
+
         _suspendedProcesses.Clear();
+    }
+
+    private void StartShuffle()
+    {
+        if (_targetWindows.Count == 0)
+        {
+            MessageBox.Show("Add at least one window.");
+            return;
+        }
+
+        _isShuffling = true;
+        _isPaused = false;
+        _currentIndex = -1;
+
+        Debug.WriteLine($"Starting shuffle with {_targetWindows.Count} windows");
+
+        this.WindowState = FormWindowState.Minimized;
+        this.Text = "KHShuffler - Shuffling...";
+
+        _startButton.Enabled = false;
+        _stopButton.Enabled = true;
+        _pauseButton.Enabled = true;
+        _pauseButton.Text = "Pause";
+
+        _timerShouldRun = true;
+        _backgroundTimer.Change(0, 1000);
+
+        ScheduleNextSwitch(immediate: true);
+        Debug.WriteLine("Background timer started");
+    }
+
+    private void StopShuffle()
+    {
+        Debug.WriteLine("Stopping shuffle");
+
+        _timerShouldRun = false;
+        _backgroundTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+        _isShuffling = false;
+        _isPaused = false;
+
+        this.WindowState = FormWindowState.Normal;
+        this.Text = "KHShuffler";
+
+        ResumeAllTargetProcesses();
+
+        _startButton.Enabled = true;
+        _stopButton.Enabled = false;
+        _pauseButton.Enabled = false;
+        _pauseButton.Text = "Pause";
+
+        Debug.WriteLine("Background timer stopped");
+    }
+
+    private void TogglePause()
+    {
+        if (!_isShuffling) return;
+
+        _isPaused = !_isPaused;
+
+        if (_isPaused)
+        {
+            var now = DateTime.UtcNow;
+            if (now < _nextSwitch)
+            {
+                _remainingTime = _nextSwitch - now;
+            }
+            else
+            {
+                _remainingTime = TimeSpan.Zero;
+            }
+
+            _pausedAt = now;
+            _pauseButton.Text = "Resume";
+            this.Text = "KHShuffler - Paused";
+
+            Debug.WriteLine($"Shuffler paused. Remaining time until next switch: {_remainingTime.TotalSeconds:F1}s");
+        }
+        else
+        {
+            var now = DateTime.UtcNow;
+            _nextSwitch = now.Add(_remainingTime);
+            _pauseButton.Text = "Pause";
+            this.Text = "KHShuffler - Shuffling...";
+
+            Debug.WriteLine($"Shuffler resumed. Next switch in: {_remainingTime.TotalSeconds:F1}s at {_nextSwitch:HH:mm:ss}");
+        }
     }
 
     private void SwitchToNextWindow()
     {
         if (_isSwitching) return;
-        
+
         _isSwitching = true;
         Debug.WriteLine("=== SWITCH TO NEXT WINDOW START ===");
-        
+
         try
         {
             var validWindows = new List<IntPtr>();
@@ -737,20 +1060,21 @@ public class MainForm : Form
                     }
                     catch { }
                 }
-                
+
                 _targetWindows.Remove(window);
                 _suspensionModeCache.TryRemove(window, out _);
+                _originalWindowStyles.TryRemove(window, out _); // Clean up style cache
             }
-            
+
             Debug.WriteLine($"Valid windows found: {validWindows.Count}");
-            
+
             if (validWindows.Count == 0)
             {
                 Debug.WriteLine("No valid windows - stopping shuffle");
                 StopShuffle();
                 return;
             }
-            
+
             if (validWindows.Count == 1)
             {
                 Debug.WriteLine("Only one valid window - stopping shuffle");
@@ -769,29 +1093,48 @@ public class MainForm : Form
                             ResumeProcessPriorityOnly((int)pid);
                             break;
                     }
+                    
+                    // CRITICAL FIX: Restore window style before showing
+                    if (_originalWindowStyles.TryGetValue(lastWindow, out var originalStyle))
+                    {
+                        try
+                        {
+                            var currentStyle = NativeMethods.GetWindowLong(lastWindow, NativeMethods.GWL_STYLE);
+                            if (currentStyle != originalStyle)
+                            {
+                                NativeMethods.SetWindowLong(lastWindow, NativeMethods.GWL_STYLE, originalStyle);
+                                NativeMethods.SetWindowPos(lastWindow, IntPtr.Zero, 0, 0, 0, 0, 
+                                    NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOMOVE | 
+                                    NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | 
+                                    NativeMethods.SWP_NOACTIVATE);
+                            }
+                        }
+                        catch { }
+                    }
+                    
                     NativeMethods.ShowWindow(lastWindow, ShowWindowCommands.Restore);
                     NativeMethods.SetForegroundWindow(lastWindow);
                 }
                 StopShuffle();
                 return;
             }
-            
+
             _targetWindows.Clear();
             _targetWindows.AddRange(validWindows);
-            
+
             if (_currentIndex >= validWindows.Count)
                 _currentIndex = -1;
-            
+
             _currentIndex = (_currentIndex + 1) % validWindows.Count;
             var target = validWindows[_currentIndex];
-            
+
             Debug.WriteLine($"Switching to window index {_currentIndex}");
-            
+
             NativeMethods.GetWindowThreadProcessId(target, out var targetPid);
             if (targetPid != 0)
             {
                 _suspendedProcesses.TryRemove((int)targetPid, out _);
-                
+
                 var targetMode = GetSuspensionMode(target);
                 Debug.WriteLine($"Resuming target PID {targetPid} (mode: {targetMode})");
                 switch (targetMode)
@@ -804,13 +1147,10 @@ public class MainForm : Form
                         ResumeProcessPriorityOnly((int)targetPid);
                         break;
                 }
-                
+
                 if (NativeMethods.IsIconic(target))
                     NativeMethods.ShowWindow(target, ShowWindowCommands.Restore);
-                
-                Debug.WriteLine("Skipping borderless conversion for debugging");
-                // Temporarily disable borderless to test if this is causing the hang
-                /*
+
                 if (_forceBorderless.Checked)
                 {
                     try
@@ -836,31 +1176,29 @@ public class MainForm : Form
                     }
                     catch { }
                 }
-                */
-                
+
                 NativeMethods.SetForegroundWindow(target);
                 Debug.WriteLine("Window focused successfully");
-                
+
                 var otherWindows = validWindows.Where(h => h != target).ToList();
                 Debug.WriteLine($"Suspending {otherWindows.Count} other windows");
-                
+
                 foreach (var h in otherWindows)
                 {
                     try
                     {
                         NativeMethods.GetWindowThreadProcessId(h, out var pid);
                         if (pid == 0 || _suspendedProcesses.ContainsKey((int)pid)) continue;
-                        
+
                         var mode = GetSuspensionMode(h);
                         Debug.WriteLine($"Suspending PID {pid} (mode: {mode})");
-                        
-                        // Minimize BEFORE suspending to avoid hanging on suspended processes
+
                         if (mode != SuspensionMode.NoSuspend)
                         {
                             NativeMethods.ShowWindow(h, ShowWindowCommands.Minimize);
                             Debug.WriteLine($"Minimized window for PID {pid}");
                         }
-                        
+
                         bool suspended = false;
                         switch (mode)
                         {
@@ -872,7 +1210,7 @@ public class MainForm : Form
                                 suspended = SuspendProcessPriorityOnly((int)pid);
                                 break;
                         }
-                        
+
                         if (suspended)
                         {
                             _suspendedProcesses[(int)pid] = true;
@@ -888,7 +1226,7 @@ public class MainForm : Form
                         Debug.WriteLine($"Suspend error: {ex.Message}");
                     }
                 }
-                
+
                 Debug.WriteLine("All suspension operations completed");
             }
             else
@@ -913,8 +1251,198 @@ public class MainForm : Form
     {
         if (disposing)
         {
+            if (_isShuffling)
+            {
+                Debug.WriteLine("Application disposing - performing cleanup");
+                ResumeAllTargetProcesses();
+            }
+
             _backgroundTimer?.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+public class SlidingToggle : Control
+{
+    private bool _checked = false;
+    private bool _animating = false;
+    private float _knobPosition = 0f; // 0 = left (off), 1 = right (on)
+    private readonly System.Windows.Forms.Timer _animationTimer = new();
+    private const int AnimationSteps = 10;
+    private int _currentStep = 0;
+
+    public event EventHandler? CheckedChanged;
+
+    public bool Checked
+    {
+        get => _checked;
+        set
+        {
+            if (_checked != value)
+            {
+                _checked = value;
+                AnimateToPosition();
+                CheckedChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public SlidingToggle()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.DoubleBuffer, true);
+        Size = new Size(250, 30); // Increase width to accommodate label
+
+        _animationTimer.Interval = 20; // 50 FPS animation
+        _animationTimer.Tick += AnimationTimer_Tick;
+    }
+
+    private void AnimateToPosition()
+    {
+        if (_animating) return;
+
+        _animating = true;
+        _currentStep = 0;
+        _animationTimer.Start();
+    }
+
+    private void AnimationTimer_Tick(object? sender, EventArgs e)
+    {
+        _currentStep++;
+        float targetPosition = _checked ? 1f : 0f;
+        float startPosition = _checked ? 0f : 1f;
+
+        // Smooth easing animation
+        float progress = (float)_currentStep / AnimationSteps;
+        progress = (float)(1 - Math.Pow(1 - progress, 3)); // Ease-out cubic
+
+        _knobPosition = startPosition + (targetPosition - startPosition) * progress;
+
+        Invalidate();
+
+        if (_currentStep >= AnimationSteps)
+        {
+            _knobPosition = targetPosition;
+            _animating = false;
+            _animationTimer.Stop();
+            Invalidate();
+        }
+    }
+
+    protected override void OnClick(EventArgs e)
+    {
+        base.OnClick(e);
+        Checked = !Checked;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        // Colors based on theme
+        var isDarkMode = _checked;
+        var trackColor = isDarkMode ? Color.FromArgb(100, 65, 165) : Color.FromArgb(200, 200, 200);
+        var knobColor = Color.White;
+        var borderColor = Color.FromArgb(150, 150, 150);
+
+        // Draw track (rounded rectangle) - keep it on the left side
+        var trackRect = new Rectangle(2, Height / 2 - 8, 60, 16);
+        using (var brush = new SolidBrush(trackColor))
+        {
+            g.FillRoundedRectangle(brush, trackRect, 8);
+        }
+
+        using (var pen = new Pen(borderColor, 1))
+        {
+            g.DrawRoundedRectangle(pen, trackRect, 8);
+        }
+
+        // Draw knob (circle) - position relative to track
+        var knobSize = 20;
+        var knobX = (int)(4 + _knobPosition * (trackRect.Width - knobSize + 4));
+        var knobY = Height / 2 - knobSize / 2;
+        var knobRect = new Rectangle(knobX, knobY, knobSize, knobSize);
+
+        using (var brush = new SolidBrush(knobColor))
+        {
+            g.FillEllipse(brush, knobRect);
+        }
+
+        using (var pen = new Pen(borderColor, 1))
+        {
+            g.DrawEllipse(pen, knobRect);
+        }
+
+        // Draw label next to the toggle
+        var labelText = "Dark Mode";
+        var labelX = trackRect.Right + 10; // Position label to the right of the track
+        var labelBounds = new Rectangle(labelX, 0, Width - labelX, Height);
+        using (var brush = new SolidBrush(ForeColor))
+        {
+            var format = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
+            g.DrawString(labelText, Font, brush, labelBounds, format);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _animationTimer?.Dispose();
+        }
+        base.Dispose(disposing);
+    }
+}
+
+// Extension method for rounded rectangles
+public static class GraphicsExtensions
+{
+    public static void FillRoundedRectangle(this Graphics graphics, Brush brush, Rectangle bounds, int radius)
+    {
+        using (var path = CreateRoundedRectanglePath(bounds, radius))
+        {
+            graphics.FillPath(brush, path);
+        }
+    }
+
+    public static void DrawRoundedRectangle(this Graphics graphics, Pen pen, Rectangle bounds, int radius)
+    {
+        using (var path = CreateRoundedRectanglePath(bounds, radius))
+        {
+            graphics.DrawPath(pen, path);
+        }
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath CreateRoundedRectanglePath(Rectangle bounds, int radius)
+    {
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+
+        if (radius <= 0)
+        {
+            path.AddRectangle(bounds);
+            return path;
+        }
+
+        var diameter = radius * 2;
+        var arc = new Rectangle(bounds.Location, new Size(diameter, diameter));
+
+        // Top left arc
+        path.AddArc(arc, 180, 90);
+
+        // Top right arc
+        arc.X = bounds.Right - diameter;
+        path.AddArc(arc, 270, 90);
+
+        // Bottom right arc
+        arc.Y = bounds.Bottom - diameter;
+        path.AddArc(arc, 0, 90);
+
+        // Bottom left arc
+        arc.X = bounds.Left;
+        path.AddArc(arc, 90, 90);
+
+        path.CloseFigure();
+        return path;
     }
 }
