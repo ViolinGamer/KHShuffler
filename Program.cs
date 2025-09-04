@@ -10,7 +10,7 @@ namespace BetterGameShuffler;
 
 internal static class Program
 {
-    public const string Version = "v1.0.0";
+    public const string Version = "v1.0.1";
 
     [STAThread]
     static void Main()
@@ -425,37 +425,43 @@ public class MainForm : Form
     {
         try
         {
-            Debug.WriteLine($"Resuming UE4 Kingdom Hearts process {process.Id} with ENHANCED GPU-SAFE measures");
+            Debug.WriteLine($"Resuming UE4 Kingdom Hearts process {process.Id} with ENHANCED GPU-SAFE + RENDERING STABILITY measures");
 
             // Step 1: Restore priority GRADUALLY to avoid GPU shock
             process.PriorityClass = ProcessPriorityClass.BelowNormal; // Start lower
-            Thread.Sleep(50); // Brief stabilization
+            Thread.Sleep(75); // Increased from 50ms for better stability
             process.PriorityClass = ProcessPriorityClass.Normal; // Then restore to normal
 
-            // Step 2: Restore CPU affinity gradually for GPU stability
+            // Step 2: More conservative CPU affinity restoration for rendering stability
             int totalCores = Environment.ProcessorCount;
             
-            // First restore to half cores, then full cores (prevents GPU thread overwhelming)
+            // Start with even fewer cores for KH0.2 rendering stability
+            int quarterCores = Math.Max(2, totalCores / 4);
+            IntPtr quarterAffinityMask = (IntPtr)((1L << quarterCores) - 1);
+            process.ProcessorAffinity = quarterAffinityMask;
+            Thread.Sleep(100); // Let rendering threads stabilize
+            
+            // Then half cores
             int halfCores = Math.Max(4, totalCores / 2);
             IntPtr halfAffinityMask = (IntPtr)((1L << halfCores) - 1);
             process.ProcessorAffinity = halfAffinityMask;
-            Thread.Sleep(100); // Let GPU threads stabilize
+            Thread.Sleep(125); // Longer GPU thread stabilization
             
-            // Then restore full affinity
+            // Finally restore full affinity
             IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
             process.ProcessorAffinity = fullAffinityMask;
 
-            // Step 3: BATCH RESUME threads to prevent GPU overwhelming
+            // Step 3: SMALLER BATCHES for better GPU/rendering control
             var threadsToResume = new List<ProcessThread>();
             foreach (ProcessThread thread in process.Threads)
             {
                 threadsToResume.Add(thread);
             }
 
-            Debug.WriteLine($"UE4 GPU-safe resume: Found {threadsToResume.Count} threads to resume in batches");
+            Debug.WriteLine($"UE4 GPU-safe + rendering stable resume: Found {threadsToResume.Count} threads to resume in smaller batches");
 
             int resumed = 0;
-            const int batchSize = 8; // Smaller batches for GPU stability
+            const int batchSize = 6; // Reduced from 8 for better stability
             
             for (int i = 0; i < threadsToResume.Count; i += batchSize)
             {
@@ -468,15 +474,12 @@ public class MainForm : Form
                         var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
                         if (hThread != IntPtr.Zero)
                         {
-                            // Resume threads more gently - single resume call instead of loop
+                            // Very gentle resume - single call only to avoid overwhelming
                             int resumeResult = NativeMethods.ResumeThread(hThread);
                             if (resumeResult > 0)
                             {
-                                // Only do additional resumes if thread was actually suspended multiple times
-                                while (NativeMethods.ResumeThread(hThread) > 0 && resumeResult < 3) 
-                                {
-                                    resumeResult++;
-                                }
+                                // Only do one additional resume if really needed
+                                NativeMethods.ResumeThread(hThread);
                             }
                             NativeMethods.CloseHandle(hThread);
                             resumed++;
@@ -485,22 +488,22 @@ public class MainForm : Form
                     catch { }
                 }
                 
-                // CRITICAL: Longer delays between batches for GPU thread stabilization
+                // LONGER delays between batches for rendering thread stabilization
                 if (i + batchSize < threadsToResume.Count)
                 {
-                    Thread.Sleep(25); // 25ms between batches (was immediate)
+                    Thread.Sleep(40); // Increased from 25ms for KH0.2 rendering stability
                 }
             }
 
-            // Step 4: CRITICAL GPU stabilization delay
-            Thread.Sleep(150); // Let GPU/rendering threads fully stabilize before returning
+            // Step 4: EXTENDED GPU + rendering stabilization delay
+            Thread.Sleep(200); // Increased from 150ms for KH0.2 zoom/rendering issues
 
-            Debug.WriteLine($"UE4 GPU-safe resume completed: {resumed} threads resumed with GPU stability measures, priority + CPU affinity restored");
+            Debug.WriteLine($"UE4 GPU-safe + rendering stable resume completed: {resumed} threads resumed with GPU + rendering stability measures");
             return true;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"UE4 GPU-safe resume failed: {process.Id} - {ex.Message}");
+            Debug.WriteLine($"UE4 GPU-safe + rendering stable resume failed: {process.Id} - {ex.Message}");
             return false;
         }
     }
