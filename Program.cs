@@ -425,36 +425,82 @@ public class MainForm : Form
     {
         try
         {
-            Debug.WriteLine($"Resuming UE4 Kingdom Hearts process {process.Id}");
+            Debug.WriteLine($"Resuming UE4 Kingdom Hearts process {process.Id} with ENHANCED GPU-SAFE measures");
 
-            process.PriorityClass = ProcessPriorityClass.Normal;
+            // Step 1: Restore priority GRADUALLY to avoid GPU shock
+            process.PriorityClass = ProcessPriorityClass.BelowNormal; // Start lower
+            Thread.Sleep(50); // Brief stabilization
+            process.PriorityClass = ProcessPriorityClass.Normal; // Then restore to normal
 
+            // Step 2: Restore CPU affinity gradually for GPU stability
             int totalCores = Environment.ProcessorCount;
+            
+            // First restore to half cores, then full cores (prevents GPU thread overwhelming)
+            int halfCores = Math.Max(4, totalCores / 2);
+            IntPtr halfAffinityMask = (IntPtr)((1L << halfCores) - 1);
+            process.ProcessorAffinity = halfAffinityMask;
+            Thread.Sleep(100); // Let GPU threads stabilize
+            
+            // Then restore full affinity
             IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
             process.ProcessorAffinity = fullAffinityMask;
 
-            int resumed = 0;
+            // Step 3: BATCH RESUME threads to prevent GPU overwhelming
+            var threadsToResume = new List<ProcessThread>();
             foreach (ProcessThread thread in process.Threads)
             {
-                try
-                {
-                    var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
-                    if (hThread != IntPtr.Zero)
-                    {
-                        while (NativeMethods.ResumeThread(hThread) > 0) { }
-                        NativeMethods.CloseHandle(hThread);
-                        resumed++;
-                    }
-                }
-                catch { }
+                threadsToResume.Add(thread);
             }
 
-            Debug.WriteLine($"UE4 resume completed: {resumed} threads resumed, priority + CPU affinity restored");
+            Debug.WriteLine($"UE4 GPU-safe resume: Found {threadsToResume.Count} threads to resume in batches");
+
+            int resumed = 0;
+            const int batchSize = 8; // Smaller batches for GPU stability
+            
+            for (int i = 0; i < threadsToResume.Count; i += batchSize)
+            {
+                var batch = threadsToResume.Skip(i).Take(batchSize);
+                
+                foreach (var thread in batch)
+                {
+                    try
+                    {
+                        var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                        if (hThread != IntPtr.Zero)
+                        {
+                            // Resume threads more gently - single resume call instead of loop
+                            int resumeResult = NativeMethods.ResumeThread(hThread);
+                            if (resumeResult > 0)
+                            {
+                                // Only do additional resumes if thread was actually suspended multiple times
+                                while (NativeMethods.ResumeThread(hThread) > 0 && resumeResult < 3) 
+                                {
+                                    resumeResult++;
+                                }
+                            }
+                            NativeMethods.CloseHandle(hThread);
+                            resumed++;
+                        }
+                    }
+                    catch { }
+                }
+                
+                // CRITICAL: Longer delays between batches for GPU thread stabilization
+                if (i + batchSize < threadsToResume.Count)
+                {
+                    Thread.Sleep(25); // 25ms between batches (was immediate)
+                }
+            }
+
+            // Step 4: CRITICAL GPU stabilization delay
+            Thread.Sleep(150); // Let GPU/rendering threads fully stabilize before returning
+
+            Debug.WriteLine($"UE4 GPU-safe resume completed: {resumed} threads resumed with GPU stability measures, priority + CPU affinity restored");
             return true;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"UE4 resume failed: {process.Id} - {ex.Message}");
+            Debug.WriteLine($"UE4 GPU-safe resume failed: {process.Id} - {ex.Message}");
             return false;
         }
     }
@@ -763,7 +809,7 @@ public class MainForm : Form
             // to prevent double cleanup
         }
     }
-    
+
     private void ToggleDarkMode()
     {
         Settings.DarkMode = _darkModeToggle.Checked;
@@ -1093,7 +1139,7 @@ public class MainForm : Form
                             ResumeProcessPriorityOnly((int)pid);
                             break;
                     }
-                    
+
                     // CRITICAL FIX: Restore window style before showing
                     if (_originalWindowStyles.TryGetValue(lastWindow, out var originalStyle))
                     {
@@ -1103,15 +1149,15 @@ public class MainForm : Form
                             if (currentStyle != originalStyle)
                             {
                                 NativeMethods.SetWindowLong(lastWindow, NativeMethods.GWL_STYLE, originalStyle);
-                                NativeMethods.SetWindowPos(lastWindow, IntPtr.Zero, 0, 0, 0, 0, 
-                                    NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOMOVE | 
-                                    NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | 
+                                NativeMethods.SetWindowPos(lastWindow, IntPtr.Zero, 0, 0, 0, 0,
+                                    NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOMOVE |
+                                    NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER |
                                     NativeMethods.SWP_NOACTIVATE);
                             }
                         }
                         catch { }
                     }
-                    
+
                     NativeMethods.ShowWindow(lastWindow, ShowWindowCommands.Restore);
                     NativeMethods.SetForegroundWindow(lastWindow);
                 }
@@ -1160,15 +1206,15 @@ public class MainForm : Form
                         {
                             var monitor = NativeMethods.MonitorFromWindow(target, NativeMethods.MONITOR_DEFAULTTOPRIMARY);
                             var monitorInfo = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-                            
+
                             if (NativeMethods.GetMonitorInfo(monitor, ref monitorInfo))
                             {
                                 var rect = monitorInfo.rcMonitor;
                                 var newStyle = style & ~(NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME | NativeMethods.WS_SYSMENU);
-                                
+
                                 NativeMethods.SetWindowLong(target, NativeMethods.GWL_STYLE, newStyle);
-                                NativeMethods.SetWindowPos(target, NativeMethods.HWND_TOP, 
-                                    rect.Left, rect.Top, 
+                                NativeMethods.SetWindowPos(target, NativeMethods.HWND_TOP,
+                                    rect.Left, rect.Top,
                                     rect.Right - rect.Left, rect.Bottom - rect.Top,
                                     NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_SHOWWINDOW);
                             }
