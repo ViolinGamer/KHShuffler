@@ -57,8 +57,9 @@ public class EffectManager : IDisposable
         };
         
         _activeEffects.Add(activeEffect);
-        _overlay.ShowEffectNotification($"{effect.Name} activated by {username}!");
-        _overlay.AddActiveEffect(effect.Name, duration);
+        
+        // Show activation notification with effect name, user, and duration
+        _overlay.ShowEffectActivationNotification(effect.Name, username, (int)duration.TotalSeconds);
         
         // Apply the effect
         await ExecuteEffect(activeEffect);
@@ -405,7 +406,6 @@ public class EffectManager : IDisposable
     private void CleanupEffect(ActiveEffect effect)
     {
         _activeEffects.Remove(effect);
-        _overlay.RemoveActiveEffect(effect.Config.Name);
         
         // Process next effect in queue
         if (_effectQueue.Count > 0)
