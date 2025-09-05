@@ -21,6 +21,7 @@ public class EffectTestModeForm : Form
     private readonly Button _randomSoundButton = new() { Text = "Test Sound Effect", Size = new Size(150, 40) };
     private readonly Button _staticHudButton = new() { Text = "Test HUD Overlay", Size = new Size(150, 40) };
     private readonly Button _blurFilterButton = new() { Text = "Test Blur Filter", Size = new Size(150, 40) };
+    private readonly Button _mirrorModeButton = new() { Text = "Test Mirror Mode", Size = new Size(150, 40) };
     private readonly Button _clearAllButton = new() { Text = "Clear All Effects", Size = new Size(150, 40), BackColor = Color.LightCoral };
     private readonly Button _scanFormatsButton = new() { Text = "Scan Image Formats", Size = new Size(150, 40), BackColor = Color.LightGreen };
     
@@ -144,7 +145,7 @@ public class EffectTestModeForm : Form
             _chaosButton, _timerDecreaseButton, 
             _randomImageButton, _blacklistButton, _colorFilterButton,
             _randomSoundButton, _staticHudButton, _blurFilterButton,
-            _clearAllButton, _scanFormatsButton
+            _mirrorModeButton, _clearAllButton, _scanFormatsButton
         });
         
         mainPanel.Controls.Add(buttonPanel);
@@ -171,6 +172,7 @@ public class EffectTestModeForm : Form
         _randomSoundButton.Click += async (_, __) => await TestEffect(TwitchEffectType.RandomSound);
         _staticHudButton.Click += async (_, __) => await TestEffect(TwitchEffectType.StaticHUD);
         _blurFilterButton.Click += async (_, __) => await TestEffect(TwitchEffectType.BlurFilter);
+        _mirrorModeButton.Click += async (_, __) => await TestEffect(TwitchEffectType.MirrorMode);
         _clearAllButton.Click += (_, __) => ClearAllEffects();
         _scanFormatsButton.Click += (_, __) => LogImageFormats();
         

@@ -148,6 +148,15 @@ public class TwitchEffectSettings
             Enabled = true, 
             BitsRequired = 200,
             SubsRequired = 3
+        },
+        [TwitchEffectType.MirrorMode] = new() 
+        { 
+            Type = TwitchEffectType.MirrorMode,
+            Name = "MIRROR MODE",
+            Duration = TimeSpan.FromSeconds(20), 
+            Enabled = true, 
+            BitsRequired = 150,
+            SubsRequired = 2
         }
     };
     
@@ -212,7 +221,8 @@ public enum TwitchEffectType
     BlurFilter,
     ColorFilter,
     RandomSound,
-    StaticHUD
+    StaticHUD,
+    MirrorMode
 }
 
 public class TwitchEffectEventArgs : EventArgs

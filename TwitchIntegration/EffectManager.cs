@@ -26,7 +26,7 @@ public class EffectManager : IDisposable
     {
         _mainForm = mainForm;
         _settings = settings ?? new TwitchEffectSettings();
-        _overlay = new WpfEffectOverlay(); // Use WPF overlay with true PNG transparency
+        _overlay = new WpfEffectOverlay(mainForm); // Pass MainForm reference for game window integration
         
         // Ensure effect folders exist using configurable directories
         _settings.EnsureDirectoriesExist();
@@ -102,6 +102,10 @@ public class EffectManager : IDisposable
                 
             case TwitchEffectType.BlurFilter:
                 ApplyBlurFilter(effect.Duration);
+                break;
+                
+            case TwitchEffectType.MirrorMode:
+                ApplyMirrorMode(effect.Duration);
                 break;
         }
     }
@@ -384,6 +388,11 @@ public class EffectManager : IDisposable
         _overlay.ShowBlurFilter(duration);
     }
     
+    private void ApplyMirrorMode(TimeSpan duration)
+    {
+        _overlay.ShowMirrorEffect(duration);
+    }
+    
     private void CleanupEffect(ActiveEffect effect)
     {
         _activeEffects.Remove(effect);
@@ -411,7 +420,7 @@ public class EffectManager : IDisposable
 public class ActiveEffect
 {
     public TwitchEffectConfig Config { get; set; } = new();
-    public string Username { get; set; } = "";
+    public String Username { get; set; } = "";
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public TimeSpan Duration { get; set; }
