@@ -60,12 +60,27 @@ public class TwitchEffectSettings
         }
     }
     
+    public string BlurDirectory 
+    { 
+        get 
+        {
+            var value = Settings.BlurDirectory;
+            Debug.WriteLine($"TwitchEffectSettings.BlurDirectory GET: '{value}'");
+            return value;
+        }
+        set 
+        {
+            Debug.WriteLine($"TwitchEffectSettings.BlurDirectory SET: '{value}'");
+            Settings.BlurDirectory = value;
+        }
+    }
+    
     public Dictionary<TwitchEffectType, TwitchEffectConfig> EffectConfigs { get; set; } = new()
     {
         [TwitchEffectType.ChaosMode] = new() 
         { 
             Type = TwitchEffectType.ChaosMode,
-            Name = "CHAOS MODE",
+            Name = "CHAOS SHUFFLING",
             Duration = TimeSpan.FromSeconds(30), 
             Enabled = true, 
             BitsRequired = 100,
@@ -79,15 +94,6 @@ public class TwitchEffectSettings
             Enabled = true, 
             BitsRequired = 75,
             SubsRequired = 1
-        },
-        [TwitchEffectType.HideHUD] = new() 
-        { 
-            Type = TwitchEffectType.HideHUD,
-            Name = "HUD VANISH",
-            Duration = TimeSpan.FromSeconds(20), 
-            Enabled = true, 
-            BitsRequired = 150,
-            SubsRequired = 2
         },
         [TwitchEffectType.RandomImage] = new() 
         { 
@@ -149,10 +155,11 @@ public class TwitchEffectSettings
     public string GetFullImagesPath() => Path.GetFullPath(ImagesDirectory);
     public string GetFullSoundsPath() => Path.GetFullPath(SoundsDirectory);
     public string GetFullHudPath() => Path.GetFullPath(HudDirectory);
+    public string GetFullBlurPath() => Path.GetFullPath(BlurDirectory);
     
     public void EnsureDirectoriesExist()
     {
-        var directories = new[] { ImagesDirectory, SoundsDirectory, HudDirectory };
+        var directories = new[] { ImagesDirectory, SoundsDirectory, HudDirectory, BlurDirectory };
         foreach (var dir in directories)
         {
             if (!Directory.Exists(dir))
@@ -198,7 +205,6 @@ public enum TwitchEffectType
 {
     ChaosMode,
     TimerDecrease,
-    HideHUD,
     SplitScreen,
     UpsideDown,
     RandomImage,

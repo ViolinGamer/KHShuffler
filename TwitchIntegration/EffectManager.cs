@@ -80,10 +80,6 @@ public class EffectManager : IDisposable
                 ApplyTimerDecrease(effect.Duration);
                 break;
                 
-            case TwitchEffectType.HideHUD:
-                await ApplyHideHUD(effect.Duration);
-                break;
-                
             case TwitchEffectType.RandomImage:
                 await ApplyRandomImage(effect.Duration);
                 break;
@@ -118,10 +114,38 @@ public class EffectManager : IDisposable
         // Set chaos timing (5-second switches)
         _mainForm.SetTimerRange(5, 5);
         
-        // Schedule restoration
+        // Trigger immediate game switch when chaos shuffling activates
+        try
+        {
+            // Use reflection to access the private ScheduleNextSwitch method with immediate parameter
+            var scheduleMethod = _mainForm.GetType().GetMethod("ScheduleNextSwitch", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            
+            if (scheduleMethod != null)
+            {
+                scheduleMethod.Invoke(_mainForm, new object[] { true }); // immediate = true
+                Debug.WriteLine("Chaos Shuffling: Triggered immediate game switch");
+            }
+            else
+            {
+                Debug.WriteLine("Chaos Shuffling: Could not find ScheduleNextSwitch method for immediate switch");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Chaos Shuffling: Failed to trigger immediate switch: {ex.Message}");
+        }
+        
+        Debug.WriteLine($"Chaos Shuffling activated: Timer changed from {originalMin}-{originalMax}s to 5s for {duration.TotalSeconds}s");
+        
+        // Schedule restoration of original timers
         Task.Delay(duration).ContinueWith(_ =>
         {
-            _mainForm.BeginInvoke(new Action(() => _mainForm.SetTimerRange(originalMin, originalMax)));
+            _mainForm.BeginInvoke(new Action(() => 
+            {
+                _mainForm.SetTimerRange(originalMin, originalMax);
+                Debug.WriteLine($"Chaos Shuffling ended: Timer restored to {originalMin}-{originalMax}s");
+            }));
         });
     }
     
@@ -140,49 +164,6 @@ public class EffectManager : IDisposable
         {
             _mainForm.BeginInvoke(new Action(() => _mainForm.SetTimerRange(originalMin, originalMax)));
         });
-    }
-    
-    private async Task ApplyHideHUD(TimeSpan duration)
-    {
-        var hudHideImage = Path.Combine(_settings.HudDirectory, "hud_hide.png");
-        
-        // Create a default HUD hide overlay if none exists
-        if (!File.Exists(hudHideImage))
-        {
-            await CreateDefaultHUDHideImage(hudHideImage);
-        }
-        
-        _overlay.ShowStaticImage(hudHideImage, duration);
-    }
-    
-    private async Task CreateDefaultHUDHideImage(string path)
-    {
-        // Ensure the directory exists
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-        
-        // Create a semi-transparent black rectangle covering typical HUD areas
-        var screen = Screen.PrimaryScreen.Bounds;
-        using var bitmap = new Bitmap(screen.Width, screen.Height);
-        using var graphics = Graphics.FromImage(bitmap);
-        
-        // Fill typical HUD areas with black rectangles
-        using var brush = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
-        
-        // Top area (health, magic, etc.)
-        graphics.FillRectangle(brush, 0, 0, screen.Width, 150);
-        
-        // Bottom area (commands, etc.)
-        graphics.FillRectangle(brush, 0, screen.Height - 200, screen.Width, 200);
-        
-        // Bottom right corner (minimap area)
-        graphics.FillRectangle(brush, screen.Width - 300, screen.Height - 300, 300, 300);
-        
-        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
-        await Task.CompletedTask;
     }
     
     private async Task ApplyRandomImage(TimeSpan duration)

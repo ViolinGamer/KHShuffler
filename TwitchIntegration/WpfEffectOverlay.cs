@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WpfAnimatedGif;
@@ -16,6 +17,7 @@ using WpfColor = System.Windows.Media.Color;
 using WpfBrushes = System.Windows.Media.Brushes;
 using WpfPoint = System.Windows.Point;
 using DrawingColor = System.Drawing.Color;
+using BetterGameShuffler; // Added namespace import for Settings
 
 namespace BetterGameShuffler.TwitchIntegration;
 
@@ -32,7 +34,7 @@ public class WpfEffectOverlay : IDisposable
     
     private void CreateOverlayWindow()
     {
-        // Create WPF window with true transparency support and NO design-time features
+        // Create WPF window with true transparency support
         _overlayWindow = new Window
         {
             WindowStyle = WindowStyle.None,
@@ -50,10 +52,6 @@ public class WpfEffectOverlay : IDisposable
             Visibility = Visibility.Hidden
         };
         
-        // COMPLETELY disable all design-time and preview features
-        _overlayWindow.SetValue(System.ComponentModel.DesignerProperties.IsInDesignModeProperty, false);
-        _overlayWindow.SetValue(UIElement.SnapsToDevicePixelsProperty, false);
-        
         // Create canvas for content
         _overlayCanvas = new Canvas
         {
@@ -68,11 +66,10 @@ public class WpfEffectOverlay : IDisposable
         _overlayWindow.Loaded += (s, e) => 
         {
             MakeWindowClickThrough();
-            // Force hide any potential design-time UI
             _overlayWindow.WindowStyle = WindowStyle.None;
         };
         
-        Debug.WriteLine($"WPF Overlay window created: Size={_overlayWindow.Width}x{_overlayWindow.Height}, True transparency enabled");
+        Debug.WriteLine($"WPF Overlay window created: Size={_overlayWindow.Width}x{_overlayWindow.Height}");
     }
     
     private void MakeWindowClickThrough()
@@ -87,12 +84,12 @@ public class WpfEffectOverlay : IDisposable
                 const int GWL_EXSTYLE = -20;
                 const int WS_EX_TRANSPARENT = 0x00000020;
                 const int WS_EX_LAYERED = 0x00080000;
-                const int WS_EX_TOOLWINDOW = 0x00000080; // Additional flag to hide from alt-tab and taskbar
+                const int WS_EX_TOOLWINDOW = 0x00000080;
                 
                 var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
                 SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
                 
-                Debug.WriteLine("WPF Overlay window made click-through with enhanced hiding");
+                Debug.WriteLine("WPF Overlay window made click-through");
             }
         }
         catch (Exception ex)
@@ -109,21 +106,18 @@ public class WpfEffectOverlay : IDisposable
     
     private WpfImage CreateAnimatedGifImage(string imagePath)
     {
-        // Use WpfAnimatedGif library for proper GIF animation
         var image = new WpfImage();
         
         try
         {
-            // Set the animated source using WpfAnimatedGif library
             ImageBehavior.SetAnimatedSource(image, new BitmapImage(new Uri(imagePath, UriKind.Absolute)));
-            
             Debug.WriteLine($"WpfAnimatedGif: Successfully set animated source for {Path.GetFileName(imagePath)}");
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"WpfAnimatedGif: Failed to set animated source: {ex.Message}");
             
-            // Fallback to regular image if animation fails
+            // Fallback to regular image
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.UriSource = new Uri(imagePath, UriKind.Absolute);
@@ -157,7 +151,6 @@ public class WpfEffectOverlay : IDisposable
             
             if (extension == ".gif")
             {
-                // Use WpfAnimatedGif library for proper GIF animation
                 image = CreateAnimatedGifImage(imagePath);
                 image.Stretch = Stretch.Fill;
                 image.Width = _overlayCanvas?.Width ?? SystemParameters.PrimaryScreenWidth;
@@ -167,7 +160,6 @@ public class WpfEffectOverlay : IDisposable
             }
             else
             {
-                // For other formats, use standard loading
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.UriSource = new Uri(imagePath, UriKind.Absolute);
@@ -185,14 +177,11 @@ public class WpfEffectOverlay : IDisposable
                 Debug.WriteLine($"Added static image: {Path.GetFileName(imagePath)}");
             }
             
-            // Set position
             Canvas.SetLeft(image, 0);
             Canvas.SetTop(image, 0);
-            
-            // Add to canvas
             _overlayCanvas?.Children.Add(image);
             
-            Debug.WriteLine($"Added WPF static image: {Path.GetFileName(imagePath)} with native transparency");
+            Debug.WriteLine($"Added WPF static image: {Path.GetFileName(imagePath)}");
             
             // Remove after duration
             Task.Delay(duration).ContinueWith(_ =>
@@ -201,7 +190,6 @@ public class WpfEffectOverlay : IDisposable
                 {
                     _overlayCanvas?.Children.Remove(image);
                     
-                    // Clean up animated GIF resources
                     if (extension == ".gif")
                     {
                         ImageBehavior.SetAnimatedSource(image, null);
@@ -209,7 +197,6 @@ public class WpfEffectOverlay : IDisposable
                     
                     Debug.WriteLine($"Removed WPF static image: {Path.GetFileName(imagePath)}");
                     
-                    // Hide window if no more content
                     if (_overlayCanvas?.Children.Count == 0)
                     {
                         _overlayWindow?.Hide();
@@ -246,15 +233,13 @@ public class WpfEffectOverlay : IDisposable
             
             if (extension == ".gif")
             {
-                // Use WpfAnimatedGif library for proper GIF animation
                 image = CreateAnimatedGifImage(imagePath);
-                image.Stretch = Stretch.None; // Keep original size for moving images
+                image.Stretch = Stretch.None;
                 
                 Debug.WriteLine($"Added animated moving GIF: {Path.GetFileName(imagePath)}");
             }
             else
             {
-                // For other formats, use standard loading
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.UriSource = new Uri(imagePath, UriKind.Absolute);
@@ -264,20 +249,17 @@ public class WpfEffectOverlay : IDisposable
                 image = new WpfImage
                 {
                     Source = bitmap,
-                    Stretch = Stretch.None // Keep original size for moving images
+                    Stretch = Stretch.None
                 };
                 
                 Debug.WriteLine($"Added static moving image: {Path.GetFileName(imagePath)}");
             }
             
-            // Set initial position to avoid NaN issues
             Canvas.SetLeft(image, 0);
             Canvas.SetTop(image, 0);
-            
-            // Add to canvas
             _overlayCanvas?.Children.Add(image);
             
-            Debug.WriteLine($"Added WPF moving image: {Path.GetFileName(imagePath)} with native PNG transparency");
+            Debug.WriteLine($"Added WPF moving image: {Path.GetFileName(imagePath)}");
             
             // Start animation
             AnimateMovingImage(image, duration, imagePath, extension);
@@ -297,27 +279,21 @@ public class WpfEffectOverlay : IDisposable
         
         while (DateTime.UtcNow - startTime < duration)
         {
-            // CHAOTIC MOVEMENT: Multiple rapid movements in quick succession
-            var movementBurst = random.Next(2, 6); // 2-5 rapid movements per burst
+            var movementBurst = random.Next(2, 6);
             
             for (int burst = 0; burst < movementBurst; burst++)
             {
-                // Get current position for smooth transitions
                 var currentX = Canvas.GetLeft(image);
                 var currentY = Canvas.GetTop(image);
                 
-                // Handle NaN values by setting to 0
                 if (double.IsNaN(currentX)) currentX = 0;
                 if (double.IsNaN(currentY)) currentY = 0;
                 
-                // CHAOTIC POSITIONING: More extreme and unpredictable movements
-                var x = random.Next(-50, (int)Math.Max(1, screenWidth - image.ActualWidth + 100)); // Allow off-screen
-                var y = random.Next(-50, (int)Math.Max(1, screenHeight - image.ActualHeight + 100)); // Allow off-screen
+                var x = random.Next(-50, (int)Math.Max(1, screenWidth - image.ActualWidth + 100));
+                var y = random.Next(-50, (int)Math.Max(1, screenHeight - image.ActualHeight + 100));
                 
-                // CHAOTIC SPEED: Vary animation speed dramatically
-                var animationSpeed = random.Next(100, 800); // 100ms to 800ms per movement
+                var animationSpeed = random.Next(100, 800);
                 
-                // CHAOTIC EASING: Random easing functions for different movement feels
                 EasingFunctionBase easingFunction = random.Next(6) switch
                 {
                     0 => new BounceEase { Bounces = random.Next(1, 4), Bounciness = random.NextDouble() * 2 },
@@ -328,10 +304,8 @@ public class WpfEffectOverlay : IDisposable
                     _ => new QuadraticEase()
                 };
                 
-                // Random easing mode for even more chaos
-                easingFunction.EasingMode = (EasingMode)random.Next(3); // In, Out, or InOut
+                easingFunction.EasingMode = (EasingMode)random.Next(3);
                 
-                // Create chaotic animations with random easing
                 var moveXAnimation = new DoubleAnimation
                 {
                     From = currentX,
@@ -348,115 +322,29 @@ public class WpfEffectOverlay : IDisposable
                     EasingFunction = easingFunction
                 };
                 
-                // Animate X and Y positions
                 image.BeginAnimation(Canvas.LeftProperty, moveXAnimation);
                 image.BeginAnimation(Canvas.TopProperty, moveYAnimation);
                 
-                // CHAOTIC TIMING: Random short delays between burst movements
-                await Task.Delay(random.Next(50, 300)); // Very short delays for rapid-fire movement
+                await Task.Delay(random.Next(50, 300));
                 
-                // Break out of burst if duration exceeded
                 if (DateTime.UtcNow - startTime >= duration) break;
             }
             
-            // CHAOTIC PAUSES: Random longer pauses between movement bursts
-            var pauseDuration = random.Next(200, 1200); // 0.2s to 1.2s pause
+            var pauseDuration = random.Next(200, 1200);
             
-            // 25% chance for SUPER CHAOTIC rapid-fire mode (no pause)
             if (random.Next(4) == 0)
             {
-                pauseDuration = random.Next(10, 100); // Almost no pause - pure chaos!
+                pauseDuration = random.Next(10, 100);
             }
             
-            // 10% chance for sudden FREEZE (dramatic pause)
             if (random.Next(10) == 0)
             {
-                pauseDuration = random.Next(1000, 3000); // 1-3 second dramatic freeze
+                pauseDuration = random.Next(1000, 3000);
             }
             
             await Task.Delay(pauseDuration);
             
-            // Break out if duration exceeded
             if (DateTime.UtcNow - startTime >= duration) break;
-        }
-        
-        // CHAOTIC EXIT: Random exit animation
-        var exitStyle = random.Next(3);
-        switch (exitStyle)
-        {
-            case 0: // Spin out
-                var rotateTransform = new RotateTransform();
-                image.RenderTransform = rotateTransform;
-                image.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
-                
-                var spinAnimation = new DoubleAnimation
-                {
-                    From = 0,
-                    To = 720, // Two full rotations
-                    Duration = TimeSpan.FromMilliseconds(1000),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
-                };
-                rotateTransform.BeginAnimation(RotateTransform.AngleProperty, spinAnimation);
-                
-                var fadeAnimation = new DoubleAnimation
-                {
-                    From = 1,
-                    To = 0,
-                    Duration = TimeSpan.FromMilliseconds(1000),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
-                };
-                image.BeginAnimation(UIElement.OpacityProperty, fadeAnimation);
-                
-                await Task.Delay(1000);
-                break;
-                
-            case 1: // Zoom out
-                var scaleTransform = new ScaleTransform();
-                image.RenderTransform = scaleTransform;
-                image.RenderTransformOrigin = new WpfPoint(0.5, 0.5);
-                
-                var scaleAnimation = new DoubleAnimation
-                {
-                    From = 1,
-                    To = 0,
-                    Duration = TimeSpan.FromMilliseconds(800),
-                    EasingFunction = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseIn }
-                };
-                scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation);
-                scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation);
-                
-                await Task.Delay(800);
-                break;
-                
-            case 2: // Slide off screen
-                var currentX = Canvas.GetLeft(image);
-                var currentY = Canvas.GetTop(image);
-                if (double.IsNaN(currentX)) currentX = 0;
-                if (double.IsNaN(currentY)) currentY = 0;
-                
-                var exitX = random.Next(2) == 0 ? -200 : screenWidth + 200; // Slide left or right
-                var exitY = random.Next(2) == 0 ? -200 : screenHeight + 200; // Slide up or down
-                
-                var slideAnimation = new DoubleAnimation
-                {
-                    From = currentX,
-                    To = exitX,
-                    Duration = TimeSpan.FromMilliseconds(600),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
-                };
-                image.BeginAnimation(Canvas.LeftProperty, slideAnimation);
-                
-                var slideYAnimation = new DoubleAnimation
-                {
-                    From = currentY,
-                    To = exitY,
-                    Duration = TimeSpan.FromMilliseconds(600),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
-                };
-                image.BeginAnimation(Canvas.TopProperty, slideYAnimation);
-                
-                await Task.Delay(600);
-                break;
         }
         
         // Remove when done
@@ -464,15 +352,13 @@ public class WpfEffectOverlay : IDisposable
         {
             _overlayCanvas?.Children.Remove(image);
             
-            // Clean up animated GIF resources
             if (extension == ".gif")
             {
                 ImageBehavior.SetAnimatedSource(image, null);
             }
             
-            Debug.WriteLine($"Removed WPF moving image with CHAOTIC exit: {Path.GetFileName(imagePath)}");
+            Debug.WriteLine($"Removed WPF moving image: {Path.GetFileName(imagePath)}");
             
-            // Hide window if no more content
             if (_overlayCanvas?.Children.Count == 0)
             {
                 _overlayWindow?.Hide();
@@ -510,7 +396,6 @@ public class WpfEffectOverlay : IDisposable
         
         _overlayCanvas?.Children.Add(textBlock);
         
-        // Remove after 3 seconds
         Task.Delay(3000).ContinueWith(_ =>
         {
             _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
@@ -537,7 +422,7 @@ public class WpfEffectOverlay : IDisposable
         
         var textBlock = new TextBlock
         {
-            Text = $"? Now Playing: {soundName}",
+            Text = $"?? Now Playing: {soundName}",
             FontSize = 14,
             FontWeight = FontWeights.Bold,
             Foreground = WpfBrushes.Cyan,
@@ -549,7 +434,6 @@ public class WpfEffectOverlay : IDisposable
         
         _overlayCanvas?.Children.Add(textBlock);
         
-        // Remove after 5 seconds
         Task.Delay(5000).ContinueWith(_ =>
         {
             _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
@@ -589,7 +473,6 @@ public class WpfEffectOverlay : IDisposable
         
         Debug.WriteLine($"Created WPF color filter: ARGB({color.A},{color.R},{color.G},{color.B})");
         
-        // Remove after duration
         Task.Delay(duration).ContinueWith(_ =>
         {
             _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
@@ -615,48 +498,231 @@ public class WpfEffectOverlay : IDisposable
             MakeWindowClickThrough();
         }
         
-        var blurBrush = new SolidColorBrush(WpfColor.FromArgb(100, 128, 128, 128));
-        var rectangle = new System.Windows.Shapes.Rectangle
+        Debug.WriteLine("Creating blur overlay from image...");
+        
+        try
         {
-            Fill = blurBrush,
+            // Look for blur images in the configurable blur directory
+            var blurFolder = Path.IsPathRooted(Settings.BlurDirectory) 
+                ? Settings.BlurDirectory 
+                : Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "", Settings.BlurDirectory);
+            
+            Debug.WriteLine($"Looking for blur images in: {blurFolder}");
+            
+            if (!Directory.Exists(blurFolder))
+            {
+                Debug.WriteLine($"Blur folder not found at: {blurFolder}");
+                CreateFallbackBlurOverlay(duration);
+                return;
+            }
+            
+            var blurFiles = Directory.GetFiles(blurFolder, "*.*")
+                .Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            
+            if (blurFiles.Length == 0)
+            {
+                Debug.WriteLine("No blur images found in blur folder");
+                CreateFallbackBlurOverlay(duration);
+                return;
+            }
+            
+            // Pick a random blur image
+            var random = new Random();
+            var selectedBlurFile = blurFiles[random.Next(blurFiles.Length)];
+            
+            Debug.WriteLine($"Using blur image: {Path.GetFileName(selectedBlurFile)}");
+            
+            // Create image element with the blur overlay
+            WpfImage blurImage;
+            var extension = Path.GetExtension(selectedBlurFile).ToLowerInvariant();
+            
+            if (extension == ".gif")
+            {
+                blurImage = CreateAnimatedGifImage(selectedBlurFile);
+            }
+            else
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(selectedBlurFile, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                
+                blurImage = new WpfImage { Source = bitmap };
+            }
+            
+            // Set up the blur overlay to cover the entire screen
+            blurImage.Stretch = Stretch.Fill;
+            blurImage.Width = _overlayCanvas?.Width ?? SystemParameters.PrimaryScreenWidth;
+            blurImage.Height = _overlayCanvas?.Height ?? SystemParameters.PrimaryScreenHeight;
+            blurImage.Opacity = 0.8; // Slightly transparent so some content can show through
+            
+            Canvas.SetLeft(blurImage, 0);
+            Canvas.SetTop(blurImage, 0);
+            
+            _overlayCanvas?.Children.Add(blurImage);
+            
+            Debug.WriteLine("Applied blur image overlay successfully!");
+            
+            // Remove after duration
+            Task.Delay(duration).ContinueWith(_ =>
+            {
+                _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        _overlayCanvas?.Children.Remove(blurImage);
+                        
+                        if (extension == ".gif")
+                        {
+                            ImageBehavior.SetAnimatedSource(blurImage, null);
+                        }
+                        
+                        Debug.WriteLine("Removed blur image overlay");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error removing blur overlay: {ex.Message}");
+                    }
+                }));
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Blur image overlay failed: {ex.Message}, using fallback");
+            CreateFallbackBlurOverlay(duration);
+        }
+    }
+    
+    private void CreateFallbackBlurOverlay(TimeSpan duration)
+    {
+        Debug.WriteLine("Creating fallback blur overlay...");
+        
+        // Create a simple semi-transparent overlay with some texture
+        var fallbackBlur = new System.Windows.Shapes.Rectangle
+        {
             Width = _overlayCanvas?.Width ?? SystemParameters.PrimaryScreenWidth,
-            Height = _overlayCanvas?.Height ?? SystemParameters.PrimaryScreenHeight
+            Height = _overlayCanvas?.Height ?? SystemParameters.PrimaryScreenHeight,
+            Fill = new SolidColorBrush(WpfColor.FromArgb(160, 200, 200, 200)), // 63% opacity light gray
+            Effect = new BlurEffect
+            {
+                Radius = 20,
+                KernelType = KernelType.Gaussian
+            }
         };
         
-        Canvas.SetLeft(rectangle, 0);
-        Canvas.SetTop(rectangle, 0);
+        Canvas.SetLeft(fallbackBlur, 0);
+        Canvas.SetTop(fallbackBlur, 0);
         
-        _overlayCanvas?.Children.Add(rectangle);
+        _overlayCanvas?.Children.Add(fallbackBlur);
         
-        Debug.WriteLine("Created WPF blur filter");
+        Debug.WriteLine("Applied fallback blur overlay");
         
         // Remove after duration
         Task.Delay(duration).ContinueWith(_ =>
         {
             _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
             {
-                _overlayCanvas?.Children.Remove(rectangle);
-                Debug.WriteLine("Removed WPF blur filter");
+                try
+                {
+                    _overlayCanvas?.Children.Remove(fallbackBlur);
+                    Debug.WriteLine("Removed fallback blur overlay");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error removing fallback blur: {ex.Message}");
+                }
             }));
         });
     }
     
-    public void AddActiveEffect(string effectName, TimeSpan duration)
+    public void ShowEffectActivationNotification(string effectName, string userName, int durationSeconds)
     {
-        // This method is no longer needed since we're using activation notifications instead
-        // Keeping as placeholder for compatibility
-    }
-    
-    public void RemoveActiveEffect(string effectName)
-    {
-        // This method is no longer needed since we're using activation notifications instead
-        // Keeping as placeholder for compatibility
-    }
-    
-    private void UpdateActiveEffectsDisplay()
-    {
-        // This method is no longer needed since we're using activation notifications instead
-        // Keeping as placeholder for compatibility
+        if (_overlayWindow?.Dispatcher.CheckAccess() == false)
+        {
+            _overlayWindow.Dispatcher.BeginInvoke(new Action(() => ShowEffectActivationNotification(effectName, userName, durationSeconds)));
+            return;
+        }
+        
+        // Show window if hidden
+        if (_overlayWindow?.Visibility != Visibility.Visible)
+        {
+            _overlayWindow?.Show();
+            MakeWindowClickThrough();
+        }
+        
+        var message = $"{effectName.ToUpper()} activated by {userName} for {durationSeconds} seconds!";
+        
+        var notificationPanel = new Border
+        {
+            Background = new SolidColorBrush(WpfColor.FromArgb(200, 0, 0, 0)),
+            BorderBrush = new SolidColorBrush(WpfColor.FromArgb(255, 255, 215, 0)),
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(15, 10, 15, 10)
+        };
+        
+        var textBlock = new TextBlock
+        {
+            Text = message,
+            FontSize = 18,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(WpfColor.FromArgb(255, 255, 215, 0)),
+            TextAlignment = TextAlignment.Center,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI")
+        };
+        
+        notificationPanel.Child = textBlock;
+        
+        Canvas.SetLeft(notificationPanel, 20);
+        Canvas.SetTop(notificationPanel, 20);
+        
+        _overlayCanvas?.Children.Add(notificationPanel);
+        
+        Debug.WriteLine($"Effect activation notification: {message}");
+        
+        // Animate entrance
+        var slideInAnimation = new DoubleAnimation
+        {
+            From = -300,
+            To = 20,
+            Duration = TimeSpan.FromMilliseconds(500),
+            EasingFunction = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseOut }
+        };
+        notificationPanel.BeginAnimation(Canvas.LeftProperty, slideInAnimation);
+        
+        // Remove after 4 seconds
+        Task.Delay(4000).ContinueWith(_ =>
+        {
+            _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var fadeOutAnimation = new DoubleAnimation
+                {
+                    From = 1,
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(800),
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                };
+                
+                fadeOutAnimation.Completed += (s, e) =>
+                {
+                    _overlayCanvas?.Children.Remove(notificationPanel);
+                    Debug.WriteLine("Removed effect activation notification");
+                    
+                    if (_overlayCanvas?.Children.Count == 0)
+                    {
+                        _overlayWindow?.Hide();
+                        Debug.WriteLine("Hidden WPF overlay window - no more content");
+                    }
+                };
+                
+                notificationPanel.BeginAnimation(UIElement.OpacityProperty, fadeOutAnimation);
+            }));
+        });
     }
     
     public void ClearAllEffects()
@@ -692,100 +758,5 @@ public class WpfEffectOverlay : IDisposable
         }
         
         _overlayWindow?.Close();
-    }
-
-    public void ShowEffectActivationNotification(string effectName, string userName, int durationSeconds)
-    {
-        if (_overlayWindow?.Dispatcher.CheckAccess() == false)
-        {
-            _overlayWindow.Dispatcher.BeginInvoke(new Action(() => ShowEffectActivationNotification(effectName, userName, durationSeconds)));
-            return;
-        }
-        
-        // Show window if hidden
-        if (_overlayWindow?.Visibility != Visibility.Visible)
-        {
-            _overlayWindow?.Show();
-            MakeWindowClickThrough();
-        }
-        
-        // Create the notification message
-        var message = $"{effectName.ToUpper()} activated by {userName} for {durationSeconds} seconds!";
-        
-        var notificationPanel = new Border
-        {
-            Background = new SolidColorBrush(WpfColor.FromArgb(200, 0, 0, 0)), // Semi-transparent black
-            BorderBrush = new SolidColorBrush(WpfColor.FromArgb(255, 255, 215, 0)), // Gold border
-            BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(15, 10, 15, 10)
-        };
-        
-        var textBlock = new TextBlock
-        {
-            Text = message,
-            FontSize = 18,
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(WpfColor.FromArgb(255, 255, 215, 0)), // Gold text
-            TextAlignment = TextAlignment.Center,
-            FontFamily = new System.Windows.Media.FontFamily("Segoe UI")
-        };
-        
-        notificationPanel.Child = textBlock;
-        
-        // Position in top-left corner
-        Canvas.SetLeft(notificationPanel, 20);
-        Canvas.SetTop(notificationPanel, 20);
-        
-        _overlayCanvas?.Children.Add(notificationPanel);
-        
-        Debug.WriteLine($"Effect activation notification: {message}");
-        
-        // Animate entrance (slide in from left)
-        var slideInAnimation = new DoubleAnimation
-        {
-            From = -300,
-            To = 20,
-            Duration = TimeSpan.FromMilliseconds(500),
-            EasingFunction = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseOut }
-        };
-        notificationPanel.BeginAnimation(Canvas.LeftProperty, slideInAnimation);
-        
-        // Remove after 4 seconds with exit animation
-        Task.Delay(4000).ContinueWith(_ =>
-        {
-            _overlayWindow?.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                // Animate exit (fade out)
-                var fadeOutAnimation = new DoubleAnimation
-                {
-                    From = 1,
-                    To = 0,
-                    Duration = TimeSpan.FromMilliseconds(800),
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
-                };
-                
-                fadeOutAnimation.Completed += (s, e) =>
-                {
-                    _overlayCanvas?.Children.Remove(notificationPanel);
-                    Debug.WriteLine("Removed effect activation notification");
-                    
-                    // Hide window if no more content
-                    if (_overlayCanvas?.Children.Count == 0)
-                    {
-                        _overlayWindow?.Hide();
-                        Debug.WriteLine("Hidden WPF overlay window - no more content");
-                    }
-                };
-                
-                notificationPanel.BeginAnimation(UIElement.OpacityProperty, fadeOutAnimation);
-            }));
-        });
-    }
-    
-    private void UpdateOverlay(object? sender, EventArgs e)
-    {
-        // Clean up expired elements if needed
-        _activeElements.RemoveAll(e => DateTime.UtcNow > e.EndTime);
     }
 }

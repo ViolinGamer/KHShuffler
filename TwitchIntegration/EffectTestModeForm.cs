@@ -13,9 +13,8 @@ public class EffectTestModeForm : Form
     private readonly EffectManager _effectManager;
     private readonly TwitchEffectSettings _settings = new();
     
-    private readonly Button _chaosButton = new() { Text = "Test Chaos Mode", Size = new Size(150, 40) };
+    private readonly Button _chaosButton = new() { Text = "Test Chaos Shuffling", Size = new Size(150, 40) };
     private readonly Button _timerDecreaseButton = new() { Text = "Test Speed Boost", Size = new Size(150, 40) };
-    private readonly Button _hideHudButton = new() { Text = "Test HUD Hide", Size = new Size(150, 40) };
     private readonly Button _randomImageButton = new() { Text = "Test Random Image", Size = new Size(150, 40) };
     private readonly Button _blacklistButton = new() { Text = "Test Game Ban", Size = new Size(150, 40) };
     private readonly Button _colorFilterButton = new() { Text = "Test Color Filter", Size = new Size(150, 40) };
@@ -33,9 +32,11 @@ public class EffectTestModeForm : Form
     private readonly TextBox _imagesDirectoryTextBox = new() { Size = new Size(200, 25), Text = "images" };
     private readonly TextBox _soundsDirectoryTextBox = new() { Size = new Size(200, 25), Text = "sounds" };
     private readonly TextBox _hudDirectoryTextBox = new() { Size = new Size(200, 25), Text = "hud" };
+    private readonly TextBox _blurDirectoryTextBox = new() { Size = new Size(200, 25), Text = "blur" };
     private readonly Button _browseImagesButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _browseSoundsButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _browseHudButton = new() { Text = "Browse...", Size = new Size(75, 25) };
+    private readonly Button _browseBlurButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _resetDirectoriesButton = new() { Text = "Reset Defaults", Size = new Size(100, 25), BackColor = Color.LightBlue };
     private readonly Button _saveSettingsButton = new() { Text = "?? Save Settings", Size = new Size(100, 25), BackColor = Color.LightGreen };
     
@@ -65,7 +66,7 @@ public class EffectTestModeForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 3,
-            RowCount = 12,
+            RowCount = 13, // Increased from 12 to accommodate blur directory
             Padding = new Padding(10)
         };
         
@@ -92,6 +93,11 @@ public class EffectTestModeForm : Form
         mainPanel.Controls.Add(new Label { Text = "HUD Directory:", AutoSize = true });
         mainPanel.Controls.Add(_hudDirectoryTextBox);
         mainPanel.Controls.Add(_browseHudButton);
+        
+        // Blur Directory
+        mainPanel.Controls.Add(new Label { Text = "Blur Directory:", AutoSize = true });
+        mainPanel.Controls.Add(_blurDirectoryTextBox);
+        mainPanel.Controls.Add(_browseBlurButton);
         
         // Reset button
         mainPanel.Controls.Add(new Label()); // Spacer
@@ -135,7 +141,7 @@ public class EffectTestModeForm : Form
         
         buttonPanel.Controls.AddRange(new Control[] 
         {
-            _chaosButton, _timerDecreaseButton, _hideHudButton,
+            _chaosButton, _timerDecreaseButton, 
             _randomImageButton, _blacklistButton, _colorFilterButton,
             _randomSoundButton, _staticHudButton, _blurFilterButton,
             _clearAllButton, _scanFormatsButton
@@ -159,7 +165,6 @@ public class EffectTestModeForm : Form
     {
         _chaosButton.Click += async (_, __) => await TestEffect(TwitchEffectType.ChaosMode);
         _timerDecreaseButton.Click += async (_, __) => await TestEffect(TwitchEffectType.TimerDecrease);
-        _hideHudButton.Click += async (_, __) => await TestEffect(TwitchEffectType.HideHUD);
         _randomImageButton.Click += async (_, __) => await TestEffect(TwitchEffectType.RandomImage);
         _blacklistButton.Click += async (_, __) => await TestEffect(TwitchEffectType.BlacklistGame);
         _colorFilterButton.Click += async (_, __) => await TestEffect(TwitchEffectType.ColorFilter);
@@ -176,6 +181,7 @@ public class EffectTestModeForm : Form
         _browseImagesButton.Click += (_, __) => BrowseForDirectory(_imagesDirectoryTextBox, "Select Images Directory");
         _browseSoundsButton.Click += (_, __) => BrowseForDirectory(_soundsDirectoryTextBox, "Select Sounds Directory");
         _browseHudButton.Click += (_, __) => BrowseForDirectory(_hudDirectoryTextBox, "Select HUD Directory");
+        _browseBlurButton.Click += (_, __) => BrowseForDirectory(_blurDirectoryTextBox, "Select Blur Directory");
         _resetDirectoriesButton.Click += (_, __) => ResetDirectoriesToDefaults();
         _saveSettingsButton.Click += (_, __) => SaveSettingsManually();
         
@@ -183,6 +189,7 @@ public class EffectTestModeForm : Form
         _imagesDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
         _soundsDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
         _hudDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
+        _blurDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
     }
     
     private void LoadDirectorySettings()
@@ -193,26 +200,31 @@ public class EffectTestModeForm : Form
         var savedImages = _settings.ImagesDirectory;
         var savedSounds = _settings.SoundsDirectory;
         var savedHud = _settings.HudDirectory;
+        var savedBlur = _settings.BlurDirectory;
         
         Debug.WriteLine($"Loading saved values from Registry:");
         Debug.WriteLine($"  Images: '{savedImages}'");
         Debug.WriteLine($"  Sounds: '{savedSounds}'");
         Debug.WriteLine($"  HUD: '{savedHud}'");
+        Debug.WriteLine($"  Blur: '{savedBlur}'");
         
         // Set the textboxes to show the actual saved values
         _imagesDirectoryTextBox.Text = savedImages;
         _soundsDirectoryTextBox.Text = savedSounds;
         _hudDirectoryTextBox.Text = savedHud;
+        _blurDirectoryTextBox.Text = savedBlur;
         
         Debug.WriteLine($"Set textbox values:");
         Debug.WriteLine($"  Images TextBox: '{_imagesDirectoryTextBox.Text}'");
         Debug.WriteLine($"  Sounds TextBox: '{_soundsDirectoryTextBox.Text}'");
         Debug.WriteLine($"  HUD TextBox: '{_hudDirectoryTextBox.Text}'");
+        Debug.WriteLine($"  Blur TextBox: '{_blurDirectoryTextBox.Text}'");
         
         LogMessage($"?? Loaded saved directory settings:");
         LogMessage($"  Images: '{savedImages}'");
         LogMessage($"  Sounds: '{savedSounds}'");
         LogMessage($"  HUD: '{savedHud}'");
+        LogMessage($"  Blur: '{savedBlur}'");
         
         Debug.WriteLine("=== LoadDirectorySettings END ===");
     }
@@ -224,22 +236,25 @@ public class EffectTestModeForm : Form
         Debug.WriteLine($"  Images: '{_imagesDirectoryTextBox.Text}'");
         Debug.WriteLine($"  Sounds: '{_soundsDirectoryTextBox.Text}'");
         Debug.WriteLine($"  HUD: '{_hudDirectoryTextBox.Text}'");
+        Debug.WriteLine($"  Blur: '{_blurDirectoryTextBox.Text}'");
         
         // Save to persistent storage automatically
         Debug.WriteLine("Setting _settings properties...");
         _settings.ImagesDirectory = _imagesDirectoryTextBox.Text;
         _settings.SoundsDirectory = _soundsDirectoryTextBox.Text;
         _settings.HudDirectory = _hudDirectoryTextBox.Text;
+        _settings.BlurDirectory = _blurDirectoryTextBox.Text;
         
         Debug.WriteLine("Reading back _settings properties...");
         Debug.WriteLine($"  Images: '{_settings.ImagesDirectory}'");
         Debug.WriteLine($"  Sounds: '{_settings.SoundsDirectory}'");
         Debug.WriteLine($"  HUD: '{_settings.HudDirectory}'");
+        Debug.WriteLine($"  Blur: '{_settings.BlurDirectory}'");
         
         // Ensure directories exist
         _settings.EnsureDirectoriesExist();
         
-        LogMessage($"?? Directory settings saved: Images='{_settings.ImagesDirectory}', Sounds='{_settings.SoundsDirectory}', HUD='{_settings.HudDirectory}'");
+        LogMessage($"?? Directory settings saved: Images='{_settings.ImagesDirectory}', Sounds='{_settings.SoundsDirectory}', HUD='{_settings.HudDirectory}', Blur='{_settings.BlurDirectory}'");
         Debug.WriteLine("=== UpdateDirectorySettings END ===");
     }
     
@@ -264,6 +279,7 @@ public class EffectTestModeForm : Form
         _imagesDirectoryTextBox.Text = "images";
         _soundsDirectoryTextBox.Text = "sounds";
         _hudDirectoryTextBox.Text = "hud";
+        _blurDirectoryTextBox.Text = "blur";
         LogMessage("?? Directory settings reset to defaults and saved");
     }
     
@@ -283,10 +299,12 @@ public class EffectTestModeForm : Form
                 var regImages = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_ImagesDirectory", "NOT_FOUND");
                 var regSounds = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_SoundsDirectory", "NOT_FOUND");
                 var regHud = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_HudDirectory", "NOT_FOUND");
+                var regBlur = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_BlurDirectory", "NOT_FOUND");
                 
                 Debug.WriteLine($"Registry - Images: {regImages}");
                 Debug.WriteLine($"Registry - Sounds: {regSounds}");
                 Debug.WriteLine($"Registry - HUD: {regHud}");
+                Debug.WriteLine($"Registry - Blur: {regBlur}");
             }
             catch (Exception regEx)
             {
@@ -371,7 +389,7 @@ public class EffectTestModeForm : Form
         {
             LogMessage("=== Scanning for supported image formats ===");
             
-            var directories = new[] { _settings.ImagesDirectory, _settings.HudDirectory };
+            var directories = new[] { _settings.ImagesDirectory, _settings.HudDirectory, _settings.BlurDirectory };
             var totalFiles = 0;
             var formatCounts = new Dictionary<string, int>();
             
