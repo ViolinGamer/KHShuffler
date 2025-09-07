@@ -15,35 +15,185 @@ public class EffectManager : IDisposable
     private readonly List<ActiveEffect> _activeEffects = new();
     private readonly Queue<TwitchEffectConfig> _effectQueue = new();
     private readonly Random _random = new();
-    private readonly MainForm _mainForm;
-    private readonly WpfEffectOverlay _overlay;
+    private readonly MainForm? _mainForm;
+    private readonly WpfEffectOverlay? _overlay;
     private readonly TwitchEffectSettings _settings;
+    private readonly AudioPlayer _audioPlayer;
     
     public bool StackEffects { get; set; } = true;
     public bool QueueEffects { get; set; } = false;
     
-    public EffectManager(MainForm mainForm, TwitchEffectSettings? settings = null)
+    // Events for Twitch integration
+    public event EventHandler<TwitchEffectEventArgs>? EffectApplied;
+    public event EventHandler<string>? EffectStatusChanged;
+    
+    public EffectManager(MainForm? mainForm, TwitchEffectSettings? settings = null)
     {
         _mainForm = mainForm;
         _settings = settings ?? new TwitchEffectSettings();
-        _overlay = new WpfEffectOverlay(mainForm); // Pass MainForm reference for game window integration
+        
+        // Create overlay safely - make it optional if WPF isn't available
+        try
+        {
+            _overlay = new WpfEffectOverlay(mainForm);
+            Debug.WriteLine("EffectManager: WPF overlay created successfully");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EffectManager: Could not create WPF overlay: {ex.Message}");
+            // For now, let's create a minimal overlay or skip overlay functionality
+            // This allows the application to start even if WPF overlay fails
+            _overlay = null!; // We'll handle null checks in overlay calls
+        }
+        
+        _audioPlayer = new AudioPlayer();
+        
+        // Set default effect modes
+        StackEffects = _settings.StackEffects;
+        QueueEffects = _settings.QueueEffects;
+        
+        Debug.WriteLine($"EffectManager: Initialized with StackEffects={StackEffects}, QueueEffects={QueueEffects}");
         
         // Ensure effect folders exist using configurable directories
         _settings.EnsureDirectoriesExist();
     }
     
+    /// <summary>
+    /// Handles Twitch subscription events (single or gift subs)
+    /// </summary>
+    public async Task HandleTwitchSubscription(string username, SubTier subTier, int giftCount = 1)
+    {
+        Debug.WriteLine($"EffectManager.HandleTwitchSubscription: User={username}, Tier={subTier}, Count={giftCount}");
+        
+        var duration = _settings.GetSubEffectDuration(subTier);
+        var effects = _settings.GetMultipleRandomEffects(giftCount, _random);
+        
+        Debug.WriteLine($"EffectManager: Duration={duration.TotalSeconds}s, Effects found={effects.Count}");
+        
+        if (effects.Count == 0)
+        {
+            Debug.WriteLine("EffectManager: No enabled effects available!");
+            EffectStatusChanged?.Invoke(this, $"? No enabled effects available for {username}'s {giftCount}x {subTier} sub(s)");
+            return;
+        }
+        
+        Debug.WriteLine($"EffectManager: About to apply {effects.Count} effects for subscription");
+        foreach (var effect in effects)
+        {
+            Debug.WriteLine($"  - Effect: {effect.Name} ({effect.Type})");
+        }
+        
+        EffectStatusChanged?.Invoke(this, $"?? {username} triggered {effects.Count} effects with {giftCount}x {subTier} sub(s)!");
+        
+        await ApplyMultipleEffects(effects, username, duration, $"{giftCount}x {subTier} Sub");
+    }
+    
+    /// <summary>
+    /// Handles Twitch bits donations
+    /// </summary>
+    public async Task HandleTwitchBits(string username, int bitsAmount)
+    {
+        Debug.WriteLine($"EffectManager: Handling Twitch bits - User: {username}, Amount: {bitsAmount}");
+        
+        var duration = _settings.GetBitsEffectDuration(bitsAmount);
+        var effect = _settings.GetRandomEnabledEffect(_random);
+        
+        if (effect == null)
+        {
+            Debug.WriteLine("EffectManager: No enabled effects available for bits donation");
+            EffectStatusChanged?.Invoke(this, $"? No enabled effects available for {username}'s {bitsAmount} bits");
+            return;
+        }
+        
+        EffectStatusChanged?.Invoke(this, $"?? {username} triggered {effect.Name} with {bitsAmount} bits!");
+        
+        await ApplyEffect(effect, username, duration, $"{bitsAmount} Bits");
+    }
+    
+    /// <summary>
+    /// Applies multiple effects with proper spacing for gift subs
+    /// </summary>
+    private async Task ApplyMultipleEffects(List<TwitchEffectConfig> effects, string username, TimeSpan duration, string trigger)
+    {
+        Debug.WriteLine($"EffectManager.ApplyMultipleEffects: Called with {effects.Count} effects for {username} ({trigger})");
+        
+        if (!effects.Any())
+        {
+            Debug.WriteLine("EffectManager: No effects to apply");
+            return;
+        }
+        
+        Debug.WriteLine($"EffectManager: Applying {effects.Count} effects with {_settings.MultiEffectDelayMs}ms delay");
+        
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            var effectUsername = effects.Count > 1 ? $"{username} ({i + 1}/{effects.Count})" : username;
+            
+            Debug.WriteLine($"EffectManager: Starting effect {i + 1}/{effects.Count}: {effect.Name} for {effectUsername}");
+            
+            // Apply the effect - WAIT for it to complete the setup phase
+            try
+            {
+                Debug.WriteLine($"EffectManager: Calling ApplyEffect for {effect.Name}");
+                await ApplyEffect(effect, effectUsername, duration, trigger);
+                Debug.WriteLine($"EffectManager: Completed ApplyEffect for {effect.Name}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"EffectManager: Error in ApplyEffect for {effect.Name}: {ex.Message}");
+            }
+            
+            // Add delay between effects (except for the last one)
+            if (i < effects.Count - 1)
+            {
+                Debug.WriteLine($"EffectManager: Waiting {_settings.MultiEffectDelayMs}ms before next effect");
+                await Task.Delay(_settings.MultiEffectDelayMs);
+            }
+        }
+        
+        Debug.WriteLine($"EffectManager.ApplyMultipleEffects: Completed launching all {effects.Count} effects");
+    }
+    
     public async Task ApplyEffect(TwitchEffectConfig effect, string username, TimeSpan duration)
     {
+        await ApplyEffect(effect, username, duration, "Manual Test");
+    }
+    
+    public async Task ApplyEffect(TwitchEffectConfig effect, string username, TimeSpan duration, string trigger)
+    {
+        Debug.WriteLine($"EffectManager.ApplyEffect: Starting {effect.Name} for {username} ({trigger}) - Duration: {duration.TotalSeconds}s");
+        
         if (QueueEffects && _activeEffects.Any())
         {
             _effectQueue.Enqueue(effect);
-            _overlay.ShowEffectNotification($"{effect.Name} queued by {username}!");
+            
+            // Thread-safe overlay notification
+            try
+            {
+                if (System.Windows.Application.Current != null)
+                {
+                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                        _overlay?.ShowEffectNotification($"{effect.Name} queued by {username}!"));
+                }
+                else
+                {
+                    _overlay?.ShowEffectNotification($"{effect.Name} queued by {username}!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"EffectManager: Error showing queue notification: {ex.Message}");
+            }
+            
+            Debug.WriteLine($"EffectManager: Effect {effect.Name} queued for {username} ({trigger})");
             return;
         }
         
         if (!StackEffects && _activeEffects.Any(e => e.Config.Type == effect.Type))
         {
             // Don't stack same effect types
+            Debug.WriteLine($"EffectManager: Effect {effect.Name} blocked (no stacking, same type active)");
             return;
         }
         
@@ -53,16 +203,48 @@ public class EffectManager : IDisposable
             Username = username,
             StartTime = DateTime.UtcNow,
             Duration = duration,
-            EndTime = DateTime.UtcNow.Add(duration)
+            EndTime = DateTime.UtcNow.Add(duration),
+            Trigger = trigger
         };
         
         _activeEffects.Add(activeEffect);
         
-        // Show activation notification with effect name, user, and duration
-        _overlay.ShowEffectActivationNotification(effect.Name, username, (int)duration.TotalSeconds);
+        Debug.WriteLine($"EffectManager: Applying effect {effect.Name} for {username} ({trigger}) - Duration: {duration.TotalSeconds}s");
         
-        // Apply the effect
-        await ExecuteEffect(activeEffect);
+        // Show activation notification with effect name, user, and duration - THREAD-SAFE
+        Debug.WriteLine($"EffectManager: Showing activation notification for {effect.Name}");
+        
+        try
+        {
+            // Simple overlay call - let the overlay handle thread safety internally
+            _overlay?.ShowEffectActivationNotification(effect.Name, username, (int)duration.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EffectManager: Error showing activation notification: {ex.Message}");
+        }
+        
+        // Fire event for logging/statistics
+        EffectApplied?.Invoke(this, new TwitchEffectEventArgs
+        {
+            Effect = effect,
+            Username = username,
+            Trigger = trigger,
+            Duration = duration
+        });
+        
+        // Apply the effect - THIS IS THE CRITICAL PART THAT WAS MISSING
+        Debug.WriteLine($"EffectManager: About to execute effect {effect.Name} ({effect.Type})");
+        try
+        {
+            await ExecuteEffect(activeEffect);
+            Debug.WriteLine($"EffectManager: Completed executing effect {effect.Name}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EffectManager: ERROR executing effect {effect.Name}: {ex.Message}");
+            Debug.WriteLine($"EffectManager: Exception stack trace: {ex.StackTrace}");
+        }
         
         // Schedule cleanup
         _ = Task.Delay(duration).ContinueWith(_ => CleanupEffect(activeEffect));
@@ -70,48 +252,71 @@ public class EffectManager : IDisposable
     
     private async Task ExecuteEffect(ActiveEffect effect)
     {
-        switch (effect.Config.Type)
+        Debug.WriteLine($"EffectManager.ExecuteEffect: Starting execution of {effect.Config.Name} ({effect.Config.Type})");
+        
+        try
         {
-            case TwitchEffectType.ChaosMode:
-                ApplyChaosMode(effect.Duration);
-                break;
-                
-            case TwitchEffectType.TimerDecrease:
-                ApplyTimerDecrease(effect.Duration);
-                break;
-                
-            case TwitchEffectType.RandomImage:
-                await ApplyRandomImage(effect.Duration);
-                break;
-                
-            case TwitchEffectType.BlacklistGame:
-                ApplyBlacklistGame(effect.Duration);
-                break;
-                
-            case TwitchEffectType.ColorFilter:
-                ApplyColorFilter(effect.Duration);
-                break;
-                
-            case TwitchEffectType.RandomSound:
-                await ApplyRandomSound();
-                break;
-                
-            case TwitchEffectType.StaticHUD:
-                await ApplyStaticHUD(effect.Duration);
-                break;
-                
-            case TwitchEffectType.BlurFilter:
-                ApplyBlurFilter(effect.Duration);
-                break;
-                
-            case TwitchEffectType.MirrorMode:
-                ApplyMirrorMode(effect.Duration);
-                break;
+            switch (effect.Config.Type)
+            {
+                case TwitchEffectType.ChaosMode:
+                    Debug.WriteLine($"EffectManager: Executing ChaosMode");
+                    ApplyChaosMode(effect.Duration);
+                    break;
+                    
+                case TwitchEffectType.RandomImage:
+                    Debug.WriteLine($"EffectManager: Executing RandomImage");
+                    await ApplyRandomImage(effect.Duration);
+                    break;
+                    
+                case TwitchEffectType.BlacklistGame:
+                    Debug.WriteLine($"EffectManager: Executing BlacklistGame");
+                    ApplyBlacklistGame(effect.Duration);
+                    break;
+                    
+                case TwitchEffectType.ColorFilter:
+                    Debug.WriteLine($"EffectManager: Executing ColorFilter");
+                    ApplyColorFilter(effect.Duration);
+                    break;
+                    
+                case TwitchEffectType.RandomSound:
+                    Debug.WriteLine($"EffectManager: Executing RandomSound");
+                    await ApplyRandomSound();
+                    break;
+                    
+                case TwitchEffectType.StaticHUD:
+                    Debug.WriteLine($"EffectManager: Executing StaticHUD");
+                    await ApplyStaticHUD(effect.Duration);
+                    break;
+                    
+                case TwitchEffectType.MirrorMode:
+                    Debug.WriteLine($"EffectManager: Executing MirrorMode");
+                    ApplyMirrorMode(effect.Duration);
+                    break;
+                    
+                default:
+                    Debug.WriteLine($"EffectManager: Unknown effect type: {effect.Config.Type}");
+                    break;
+            }
+            
+            Debug.WriteLine($"EffectManager.ExecuteEffect: Successfully completed {effect.Config.Name}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EffectManager: Error executing effect {effect.Config.Name}: {ex.Message}");
+            Debug.WriteLine($"EffectManager: Exception details: {ex}");
+            EffectStatusChanged?.Invoke(this, $"? Error applying {effect.Config.Name}: {ex.Message}");
         }
     }
     
     private void ApplyChaosMode(TimeSpan duration)
     {
+        // Check if MainForm is available (might be null in test mode)
+        if (_mainForm == null)
+        {
+            Debug.WriteLine("Chaos Shuffling: MainForm is null (test mode) - skipping chaos mode effect");
+            return;
+        }
+        
         var originalMin = _mainForm.MinSeconds;
         var originalMax = _mainForm.MaxSeconds;
         
@@ -150,23 +355,6 @@ public class EffectManager : IDisposable
                 _mainForm.SetTimerRange(originalMin, originalMax);
                 Debug.WriteLine($"Chaos Shuffling ended: Timer restored to {originalMin}-{originalMax}s");
             }));
-        });
-    }
-    
-    private void ApplyTimerDecrease(TimeSpan duration)
-    {
-        var originalMin = _mainForm.MinSeconds;
-        var originalMax = _mainForm.MaxSeconds;
-        
-        // Decrease timers by 50%
-        var newMin = Math.Max(1, originalMin / 2);
-        var newMax = Math.Max(2, originalMax / 2);
-        
-        _mainForm.SetTimerRange(newMin, newMax);
-        
-        Task.Delay(duration).ContinueWith(_ =>
-        {
-            _mainForm.BeginInvoke(new Action(() => _mainForm.SetTimerRange(originalMin, originalMax)));
         });
     }
     
@@ -267,14 +455,32 @@ public class EffectManager : IDisposable
         
         Debug.WriteLine($"Selected image: {Path.GetFileName(selectedImage)}");
         
-        _overlay.ShowMovingImage(selectedImage, duration);
-        await Task.CompletedTask;
+        // Thread-safe overlay call
+        try
+        {
+            _overlay?.ShowMovingImage(selectedImage, duration);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyRandomImage: Error showing overlay: {ex.Message}");
+        }
     }
     
     private void ApplyBlacklistGame(TimeSpan duration)
     {
+        // Check if MainForm is available (might be null in test mode)
+        if (_mainForm == null)
+        {
+            Debug.WriteLine("Game Blacklist: MainForm is null (test mode) - skipping blacklist effect");
+            return;
+        }
+        
         var gameNames = _mainForm.GetTargetGameNames();
-        if (gameNames.Count == 0) return;
+        if (gameNames.Count == 0) 
+        {
+            Debug.WriteLine("Game Blacklist: No target games available to blacklist");
+            return;
+        }
         
         var randomGame = gameNames[_random.Next(gameNames.Count)];
         _mainForm.BlacklistGame(randomGame, duration);
@@ -294,47 +500,102 @@ public class EffectManager : IDisposable
         
         Debug.WriteLine($"Random color filter: R={red}, G={green}, B={blue}, Opacity=30%");
         
-        _overlay.ShowColorFilter(randomColor, duration);
+        // Thread-safe overlay call
+        try
+        {
+            _overlay?.ShowColorFilter(randomColor, duration);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyColorFilter: Error showing overlay: {ex.Message}");
+        }
     }
     
     private async Task ApplyRandomSound()
     {
-        var soundFiles = Directory.GetFiles(_settings.SoundsDirectory, "*.wav")
-                                .Concat(Directory.GetFiles(_settings.SoundsDirectory, "*.mp3"))
-                                .ToArray();
+        // Get all supported audio files
+        var soundFiles = new List<string>();
         
-        if (soundFiles.Length == 0)
+        Debug.WriteLine($"ApplyRandomSound: Scanning '{_settings.SoundsDirectory}' for audio files...");
+        
+        if (Directory.Exists(_settings.SoundsDirectory))
         {
-            Debug.WriteLine($"No sound files found in {_settings.SoundsDirectory} folder");
-            return;
+            foreach (var supportedExtension in AudioPlayer.GetSupportedExtensions())
+            {
+                var files = Directory.GetFiles(_settings.SoundsDirectory, $"*{supportedExtension}");
+                soundFiles.AddRange(files);
+                Debug.WriteLine($"ApplyRandomSound: Found {files.Length} {supportedExtension} files");
+            }
+        }
+        else
+        {
+            Debug.WriteLine($"ApplyRandomSound: Directory '{_settings.SoundsDirectory}' does not exist");
         }
         
-        var selectedSound = soundFiles[_random.Next(soundFiles.Length)];
-        var soundName = Path.GetFileNameWithoutExtension(selectedSound);
+        Debug.WriteLine($"ApplyRandomSound: Found {soundFiles.Count} total supported audio files in '{_settings.SoundsDirectory}' folder");
         
-        // Show sound name overlay
-        _overlay.ShowSoundNotification(soundName);
-        
-        // Play sound
-        try
+        if (soundFiles.Count == 0)
         {
-            if (selectedSound.EndsWith(".wav"))
+            Debug.WriteLine($"ApplyRandomSound: No supported audio files found in {_settings.SoundsDirectory} folder");
+            
+            // Additional debugging: Check if directory exists and list all files
+            if (Directory.Exists(_settings.SoundsDirectory))
             {
-                var player = new SoundPlayer(selectedSound);
-                player.Play();
+                var allFiles = Directory.GetFiles(_settings.SoundsDirectory);
+                Debug.WriteLine($"ApplyRandomSound: Directory '{_settings.SoundsDirectory}' exists and contains {allFiles.Length} total files:");
+                foreach (var file in allFiles)
+                {
+                    var ext = Path.GetExtension(file).ToLowerInvariant();
+                    var isSupported = AudioPlayer.IsSupportedFormat(ext);
+                    Debug.WriteLine($"  - {Path.GetFileName(file)} ({ext}) - Supported: {isSupported}");
+                }
             }
             else
             {
-                // For MP3 files, you'd need a different audio library
-                Debug.WriteLine($"Playing: {selectedSound} (MP3 support requires additional libraries)");
+                Debug.WriteLine($"Directory '{_settings.SoundsDirectory}' does not exist");
             }
+            
+            return;
+        }
+        
+        Debug.WriteLine($"ApplyRandomSound: Selecting random sound from {soundFiles.Count} available files:");
+        for (int i = 0; i < Math.Min(soundFiles.Count, 10); i++) // Show up to 10 files to avoid spam
+        {
+            Debug.WriteLine($"  [{i}] {Path.GetFileName(soundFiles[i])}");
+        }
+        if (soundFiles.Count > 10)
+        {
+            Debug.WriteLine($"  ... and {soundFiles.Count - 10} more files");
+        }
+        
+        var selectedSound = soundFiles[_random.Next(soundFiles.Count)];
+        var soundName = Path.GetFileNameWithoutExtension(selectedSound);
+        var extension = Path.GetExtension(selectedSound).ToLowerInvariant();
+        
+        Debug.WriteLine($"ApplyRandomSound: Selected sound: {Path.GetFileName(selectedSound)} ({extension})");
+        
+        // Show sound name overlay - Thread-safe
+        try
+        {
+            _overlay?.ShowSoundNotification(soundName);
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Failed to play sound: {ex.Message}");
+            Debug.WriteLine($"ApplyRandomSound: Error showing sound overlay: {ex.Message}");
         }
         
-        await Task.CompletedTask;
+        // Play sound using the enhanced AudioPlayer
+        try
+        {
+            Debug.WriteLine($"ApplyRandomSound: Starting playback of {extension} file: {soundName}");
+            await _audioPlayer.PlayAsync(selectedSound);
+            Debug.WriteLine($"ApplyRandomSound: Successfully started playback of {extension} file: {soundName}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyRandomSound: Failed to play sound {selectedSound}: {ex.Message}");
+            Debug.WriteLine($"ApplyRandomSound: Exception details: {ex}");
+        }
     }
     
     private async Task ApplyStaticHUD(TimeSpan duration)
@@ -379,40 +640,88 @@ public class EffectManager : IDisposable
         var selectedHUD = hudFiles[_random.Next(hudFiles.Length)];
         Debug.WriteLine($"Selected HUD: {Path.GetFileName(selectedHUD)}");
         
-        _overlay.ShowStaticImage(selectedHUD, duration);
-        await Task.CompletedTask;
-    }
-    
-    private void ApplyBlurFilter(TimeSpan duration)
-    {
-        _overlay.ShowBlurFilter(duration);
+        // Thread-safe overlay call
+        try
+        {
+            if (System.Windows.Application.Current != null)
+            {
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                    _overlay?.ShowStaticImage(selectedHUD, duration));
+            }
+            else
+            {
+                _overlay?.ShowStaticImage(selectedHUD, duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyStaticHUD: Error showing overlay: {ex.Message}");
+        }
     }
     
     private void ApplyMirrorMode(TimeSpan duration)
     {
-        _overlay.ShowMirrorEffect(duration);
+        // Thread-safe overlay call
+        try
+        {
+            if (System.Windows.Application.Current != null)
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    _overlay?.ShowMirrorEffect(duration));
+            }
+            else
+            {
+                _overlay?.ShowMirrorEffect(duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyMirrorMode: Error showing overlay: {ex.Message}");
+        }
     }
     
     private void CleanupEffect(ActiveEffect effect)
     {
         _activeEffects.Remove(effect);
         
+        Debug.WriteLine($"EffectManager: Cleaned up effect {effect.Config.Name} for {effect.Username} ({effect.Trigger})");
+        
         // Process next effect in queue
         if (_effectQueue.Count > 0)
         {
             var nextEffect = _effectQueue.Dequeue();
-            _ = Task.Run(() => ApplyEffect(nextEffect, "Queued", nextEffect.Duration));
+            _ = Task.Run(() => ApplyEffect(nextEffect, "Queued", nextEffect.Duration, "Queue"));
         }
     }
+    
+    /// <summary>
+    /// Gets current active effects for display/monitoring
+    /// </summary>
+    public List<ActiveEffect> GetActiveEffects() => new(_activeEffects);
+    
+    /// <summary>
+    /// Gets count of queued effects
+    /// </summary>
+    public int GetQueuedEffectCount() => _effectQueue.Count;
+    
+    /// <summary>
+    /// Checks if a specific effect type is currently active
+    /// </summary>
+    public bool IsEffectTypeActive(TwitchEffectType effectType) => 
+        _activeEffects.Any(e => e.Config.Type == effectType);
     
     public void ClearAllEffects()
     {
         _overlay?.ClearAllEffects();
+        _activeEffects.Clear();
+        _effectQueue.Clear();
         Debug.WriteLine("Cleared all effects via EffectManager");
+        EffectStatusChanged?.Invoke(this, "?? All effects cleared");
     }
     
     public void Dispose()
     {
+        _audioPlayer?.Dispose();
         _overlay?.Dispose();
     }
 }
@@ -420,8 +729,36 @@ public class EffectManager : IDisposable
 public class ActiveEffect
 {
     public TwitchEffectConfig Config { get; set; } = new();
-    public String Username { get; set; } = "";
+    public string Username { get; set; } = "";
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public TimeSpan Duration { get; set; }
+    public string Trigger { get; set; } = ""; // What triggered this effect (subscription, bits, etc.)
+    
+    /// <summary>
+    /// Gets remaining time for this effect
+    /// </summary>
+    public TimeSpan RemainingTime => EndTime > DateTime.UtcNow ? EndTime - DateTime.UtcNow : TimeSpan.Zero;
+    
+    /// <summary>
+    /// Gets progress percentage (0-100)
+    /// </summary>
+    public double ProgressPercentage
+    {
+        get
+        {
+            var totalDuration = EndTime - StartTime;
+            var elapsed = DateTime.UtcNow - StartTime;
+            
+            if (totalDuration.TotalMilliseconds <= 0) return 100;
+            
+            var progress = (elapsed.TotalMilliseconds / totalDuration.TotalMilliseconds) * 100;
+            return Math.Max(0, Math.Min(100, progress));
+        }
+    }
+    
+    /// <summary>
+    /// Checks if this effect is still active
+    /// </summary>
+    public bool IsActive => DateTime.UtcNow < EndTime;
 }

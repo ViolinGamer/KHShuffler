@@ -10,20 +10,23 @@ namespace BetterGameShuffler.TwitchIntegration;
 
 public class EffectTestModeForm : Form
 {
-    private readonly EffectManager _effectManager;
     private readonly TwitchEffectSettings _settings = new();
+    private readonly EffectManager _effectManager;
+    private readonly TwitchEventSubClient _eventSubClient;
     
     private readonly Button _chaosButton = new() { Text = "Test Chaos Shuffling", Size = new Size(150, 40) };
-    private readonly Button _timerDecreaseButton = new() { Text = "Test Speed Boost", Size = new Size(150, 40) };
     private readonly Button _randomImageButton = new() { Text = "Test Random Image", Size = new Size(150, 40) };
     private readonly Button _blacklistButton = new() { Text = "Test Game Ban", Size = new Size(150, 40) };
     private readonly Button _colorFilterButton = new() { Text = "Test Color Filter", Size = new Size(150, 40) };
-    private readonly Button _randomSoundButton = new() { Text = "Test Sound Effect", Size = new Size(150, 40) };
+    private readonly Button _randomSoundButton = new() { Text = "Test Random Sound", Size = new Size(150, 40) };
     private readonly Button _staticHudButton = new() { Text = "Test HUD Overlay", Size = new Size(150, 40) };
-    private readonly Button _blurFilterButton = new() { Text = "Test Blur Filter", Size = new Size(150, 40) };
     private readonly Button _mirrorModeButton = new() { Text = "Test Mirror Mode", Size = new Size(150, 40) };
     private readonly Button _clearAllButton = new() { Text = "Clear All Effects", Size = new Size(150, 40), BackColor = Color.LightCoral };
     private readonly Button _scanFormatsButton = new() { Text = "Scan Image Formats", Size = new Size(150, 40), BackColor = Color.LightGreen };
+    private readonly Button _debugSettingsButton = new() { Text = "Debug Settings", Size = new Size(150, 40), BackColor = Color.LightYellow };
+    private readonly Button _twitchSettingsButton = new() { Text = "Twitch Settings", Size = new Size(150, 40), BackColor = Color.LightBlue };
+    private readonly Button _clearActiveEffectsButton = new() { Text = "Clear Active Effects", Size = new Size(150, 40), BackColor = Color.Orange };
+    private readonly Button _connectLiveEventsButton = new() { Text = "Connect Live Events", Size = new Size(150, 40), BackColor = Color.LightBlue };
     
     private readonly NumericUpDown _durationSeconds = new() { Minimum = 1, Maximum = 300, Value = 15, Size = new Size(80, 25) };
     private readonly CheckBox _stackEffects = new() { Text = "Stack Effects", Checked = true, AutoSize = true };
@@ -33,32 +36,46 @@ public class EffectTestModeForm : Form
     private readonly TextBox _imagesDirectoryTextBox = new() { Size = new Size(200, 25), Text = "images" };
     private readonly TextBox _soundsDirectoryTextBox = new() { Size = new Size(200, 25), Text = "sounds" };
     private readonly TextBox _hudDirectoryTextBox = new() { Size = new Size(200, 25), Text = "hud" };
-    private readonly TextBox _blurDirectoryTextBox = new() { Size = new Size(200, 25), Text = "blur" };
     private readonly Button _browseImagesButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _browseSoundsButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _browseHudButton = new() { Text = "Browse...", Size = new Size(75, 25) };
-    private readonly Button _browseBlurButton = new() { Text = "Browse...", Size = new Size(75, 25) };
     private readonly Button _resetDirectoriesButton = new() { Text = "Reset Defaults", Size = new Size(100, 25), BackColor = Color.LightBlue };
-    private readonly Button _saveSettingsButton = new() { Text = "?? Save Settings", Size = new Size(100, 25), BackColor = Color.LightGreen };
+    private readonly Button _saveSettingsButton = new() { Text = "Save Settings", Size = new Size(100, 25), BackColor = Color.LightGreen };
     
     private readonly Label _statusLabel = new() { Text = "Effect Test Mode - Configure directories and test effects", AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
     private readonly TextBox _logTextBox = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, Size = new Size(500, 150) };
     
-    public EffectTestModeForm(MainForm mainForm)
+    public EffectTestModeForm(TwitchEffectSettings settings)
     {
-        _effectManager = new EffectManager(mainForm, _settings);
+        _settings = settings;
+        _effectManager = new EffectManager(null, settings); // Pass null for MainForm since we're in test mode
+        
+        // Initialize EventSub client for real Twitch events
+        var twitchClient = new TwitchClient();
+        twitchClient.SetCredentials(_settings.TwitchClientId, _settings.TwitchClientSecret);
+        twitchClient.AccessToken = _settings.TwitchAccessToken;
+        twitchClient.Username = _settings.TwitchChannelName;
+        
+        _eventSubClient = new TwitchEventSubClient(twitchClient);
+        
         InitializeForm();
         SetupEventHandlers();
         LoadDirectorySettings();
-        LogMessage("?? Test mode initialized. Ready to test effects!");
-        LogMessage("?? Note: Directory settings are automatically saved to Windows Registry");
-        LogMessage("?? Note: Animated WebP requires Windows 10 (1903+) or Windows 11");
+        
+        // Subscribe to EffectManager events for logging
+        _effectManager.EffectStatusChanged += (_, message) => LogMessage(message);
+        
+        // Subscribe to real Twitch events
+        _eventSubClient.SubscriptionReceived += OnRealTwitchSubscription;
+        _eventSubClient.BitsReceived += OnRealTwitchBits;
+        _eventSubClient.FollowReceived += OnRealTwitchFollow;
+        _eventSubClient.ConnectionStatusChanged += (_, status) => LogMessage($"?? EventSub: {status}");
     }
     
     private void InitializeForm()
     {
         Text = "Effect Test Mode & Settings";
-        Size = new Size(700, 800);
+        Size = new Size(700, 900); // Increased from 850 to 900
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
@@ -67,7 +84,7 @@ public class EffectTestModeForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 3,
-            RowCount = 13, // Increased from 12 to accommodate blur directory
+            RowCount = 11, // Reduced from 13 since blur directory removed
             Padding = new Padding(10)
         };
         
@@ -94,11 +111,6 @@ public class EffectTestModeForm : Form
         mainPanel.Controls.Add(new Label { Text = "HUD Directory:", AutoSize = true });
         mainPanel.Controls.Add(_hudDirectoryTextBox);
         mainPanel.Controls.Add(_browseHudButton);
-        
-        // Blur Directory
-        mainPanel.Controls.Add(new Label { Text = "Blur Directory:", AutoSize = true });
-        mainPanel.Controls.Add(_blurDirectoryTextBox);
-        mainPanel.Controls.Add(_browseBlurButton);
         
         // Reset button
         mainPanel.Controls.Add(new Label()); // Spacer
@@ -136,16 +148,16 @@ public class EffectTestModeForm : Form
         var buttonPanel = new FlowLayoutPanel 
         { 
             FlowDirection = FlowDirection.LeftToRight, 
-            Size = new Size(650, 200),
+            Size = new Size(650, 300), // Increased height from 250 to 300
             WrapContents = true
         };
         
         buttonPanel.Controls.AddRange(new Control[] 
         {
-            _chaosButton, _timerDecreaseButton, 
-            _randomImageButton, _blacklistButton, _colorFilterButton,
-            _randomSoundButton, _staticHudButton, _blurFilterButton,
-            _mirrorModeButton, _clearAllButton, _scanFormatsButton
+            _chaosButton, _randomImageButton, _blacklistButton, _colorFilterButton,
+            _randomSoundButton, _staticHudButton, _mirrorModeButton, 
+            _clearAllButton, _scanFormatsButton, _debugSettingsButton, 
+            _clearActiveEffectsButton, _connectLiveEventsButton, _twitchSettingsButton
         });
         
         mainPanel.Controls.Add(buttonPanel);
@@ -165,16 +177,18 @@ public class EffectTestModeForm : Form
     private void SetupEventHandlers()
     {
         _chaosButton.Click += async (_, __) => await TestEffect(TwitchEffectType.ChaosMode);
-        _timerDecreaseButton.Click += async (_, __) => await TestEffect(TwitchEffectType.TimerDecrease);
         _randomImageButton.Click += async (_, __) => await TestEffect(TwitchEffectType.RandomImage);
         _blacklistButton.Click += async (_, __) => await TestEffect(TwitchEffectType.BlacklistGame);
         _colorFilterButton.Click += async (_, __) => await TestEffect(TwitchEffectType.ColorFilter);
         _randomSoundButton.Click += async (_, __) => await TestEffect(TwitchEffectType.RandomSound);
         _staticHudButton.Click += async (_, __) => await TestEffect(TwitchEffectType.StaticHUD);
-        _blurFilterButton.Click += async (_, __) => await TestEffect(TwitchEffectType.BlurFilter);
         _mirrorModeButton.Click += async (_, __) => await TestEffect(TwitchEffectType.MirrorMode);
         _clearAllButton.Click += (_, __) => ClearAllEffects();
         _scanFormatsButton.Click += (_, __) => LogImageFormats();
+        _debugSettingsButton.Click += (_, __) => DebugEffectsAndSettings();
+        _clearActiveEffectsButton.Click += (_, __) => ClearActiveEffects();
+        _connectLiveEventsButton.Click += async (_, __) => await ToggleLiveEvents();
+        _twitchSettingsButton.Click += (_, __) => OpenTwitchSettings();
         
         _stackEffects.CheckedChanged += (_, __) => UpdateEffectSettings();
         _queueEffects.CheckedChanged += (_, __) => UpdateEffectSettings();
@@ -183,7 +197,6 @@ public class EffectTestModeForm : Form
         _browseImagesButton.Click += (_, __) => BrowseForDirectory(_imagesDirectoryTextBox, "Select Images Directory");
         _browseSoundsButton.Click += (_, __) => BrowseForDirectory(_soundsDirectoryTextBox, "Select Sounds Directory");
         _browseHudButton.Click += (_, __) => BrowseForDirectory(_hudDirectoryTextBox, "Select HUD Directory");
-        _browseBlurButton.Click += (_, __) => BrowseForDirectory(_blurDirectoryTextBox, "Select Blur Directory");
         _resetDirectoriesButton.Click += (_, __) => ResetDirectoriesToDefaults();
         _saveSettingsButton.Click += (_, __) => SaveSettingsManually();
         
@@ -191,7 +204,6 @@ public class EffectTestModeForm : Form
         _imagesDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
         _soundsDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
         _hudDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
-        _blurDirectoryTextBox.TextChanged += (_, __) => UpdateDirectorySettings();
     }
     
     private void LoadDirectorySettings()
@@ -202,31 +214,26 @@ public class EffectTestModeForm : Form
         var savedImages = _settings.ImagesDirectory;
         var savedSounds = _settings.SoundsDirectory;
         var savedHud = _settings.HudDirectory;
-        var savedBlur = _settings.BlurDirectory;
         
         Debug.WriteLine($"Loading saved values from Registry:");
         Debug.WriteLine($"  Images: '{savedImages}'");
         Debug.WriteLine($"  Sounds: '{savedSounds}'");
         Debug.WriteLine($"  HUD: '{savedHud}'");
-        Debug.WriteLine($"  Blur: '{savedBlur}'");
         
         // Set the textboxes to show the actual saved values
         _imagesDirectoryTextBox.Text = savedImages;
         _soundsDirectoryTextBox.Text = savedSounds;
         _hudDirectoryTextBox.Text = savedHud;
-        _blurDirectoryTextBox.Text = savedBlur;
         
         Debug.WriteLine($"Set textbox values:");
         Debug.WriteLine($"  Images TextBox: '{_imagesDirectoryTextBox.Text}'");
         Debug.WriteLine($"  Sounds TextBox: '{_soundsDirectoryTextBox.Text}'");
         Debug.WriteLine($"  HUD TextBox: '{_hudDirectoryTextBox.Text}'");
-        Debug.WriteLine($"  Blur TextBox: '{_blurDirectoryTextBox.Text}'");
         
         LogMessage($"?? Loaded saved directory settings:");
         LogMessage($"  Images: '{savedImages}'");
         LogMessage($"  Sounds: '{savedSounds}'");
         LogMessage($"  HUD: '{savedHud}'");
-        LogMessage($"  Blur: '{savedBlur}'");
         
         Debug.WriteLine("=== LoadDirectorySettings END ===");
     }
@@ -238,25 +245,22 @@ public class EffectTestModeForm : Form
         Debug.WriteLine($"  Images: '{_imagesDirectoryTextBox.Text}'");
         Debug.WriteLine($"  Sounds: '{_soundsDirectoryTextBox.Text}'");
         Debug.WriteLine($"  HUD: '{_hudDirectoryTextBox.Text}'");
-        Debug.WriteLine($"  Blur: '{_blurDirectoryTextBox.Text}'");
         
         // Save to persistent storage automatically
         Debug.WriteLine("Setting _settings properties...");
         _settings.ImagesDirectory = _imagesDirectoryTextBox.Text;
         _settings.SoundsDirectory = _soundsDirectoryTextBox.Text;
         _settings.HudDirectory = _hudDirectoryTextBox.Text;
-        _settings.BlurDirectory = _blurDirectoryTextBox.Text;
         
         Debug.WriteLine("Reading back _settings properties...");
         Debug.WriteLine($"  Images: '{_settings.ImagesDirectory}'");
         Debug.WriteLine($"  Sounds: '{_settings.SoundsDirectory}'");
         Debug.WriteLine($"  HUD: '{_settings.HudDirectory}'");
-        Debug.WriteLine($"  Blur: '{_settings.BlurDirectory}'");
         
         // Ensure directories exist
         _settings.EnsureDirectoriesExist();
         
-        LogMessage($"?? Directory settings saved: Images='{_settings.ImagesDirectory}', Sounds='{_settings.SoundsDirectory}', HUD='{_settings.HudDirectory}', Blur='{_settings.BlurDirectory}'");
+        LogMessage($"?? Directory settings saved: Images='{_settings.ImagesDirectory}', Sounds='{_settings.SoundsDirectory}', HUD='{_settings.HudDirectory}'");
         Debug.WriteLine("=== UpdateDirectorySettings END ===");
     }
     
@@ -281,7 +285,6 @@ public class EffectTestModeForm : Form
         _imagesDirectoryTextBox.Text = "images";
         _soundsDirectoryTextBox.Text = "sounds";
         _hudDirectoryTextBox.Text = "hud";
-        _blurDirectoryTextBox.Text = "blur";
         LogMessage("?? Directory settings reset to defaults and saved");
     }
     
@@ -301,12 +304,10 @@ public class EffectTestModeForm : Form
                 var regImages = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_ImagesDirectory", "NOT_FOUND");
                 var regSounds = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_SoundsDirectory", "NOT_FOUND");
                 var regHud = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_HudDirectory", "NOT_FOUND");
-                var regBlur = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\BetterGameShuffler", "TwitchEffects_BlurDirectory", "NOT_FOUND");
                 
                 Debug.WriteLine($"Registry - Images: {regImages}");
                 Debug.WriteLine($"Registry - Sounds: {regSounds}");
                 Debug.WriteLine($"Registry - HUD: {regHud}");
-                Debug.WriteLine($"Registry - Blur: {regBlur}");
             }
             catch (Exception regEx)
             {
@@ -314,8 +315,8 @@ public class EffectTestModeForm : Form
             }
             
             LogMessage("? Settings manually saved to Windows Registry");
-            LogMessage($"?? Registry location: HKEY_CURRENT_USER\\Software\\BetterGameShuffler");
-            LogMessage($"?? Check Debug Output for detailed Registry verification");
+            LogMessage("?? Registry location: HKEY_CURRENT_USER\\Software\\BetterGameShuffler");
+            LogMessage("?? Check Debug Output for detailed Registry verification");
             Debug.WriteLine("=== MANUAL SAVE SETTINGS END ===");
         }
         catch (Exception ex)
@@ -356,6 +357,24 @@ public class EffectTestModeForm : Form
         }
     }
     
+    private void ClearActiveEffects()
+    {
+        try
+        {
+            var activeCount = _effectManager.GetActiveEffects().Count;
+            var queuedCount = _effectManager.GetQueuedEffectCount();
+            
+            _effectManager.ClearAllEffects();
+            
+            LogMessage($"?? Cleared {activeCount} active effects and {queuedCount} queued effects");
+            LogMessage("? All effects cleared - you can now test subscriptions without queue/stack interference");
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"? Error clearing effects: {ex.Message}");
+        }
+    }
+    
     private void UpdateEffectSettings()
     {
         _effectManager.StackEffects = _stackEffects.Checked;
@@ -385,13 +404,226 @@ public class EffectTestModeForm : Form
         _logTextBox.ScrollToCaret();
     }
     
+    private void OpenTwitchSettings()
+    {
+        try
+        {
+            using var twitchSettingsForm = new TwitchSettingsForm(_settings);
+            
+            // Subscribe to test events from the Twitch settings form
+            twitchSettingsForm.TestEventTriggered += OnTwitchTestEvent;
+            
+            LogMessage("?? Opening Twitch settings...");
+            
+            var result = twitchSettingsForm.ShowDialog();
+            
+            if (result == DialogResult.OK)
+            {
+                LogMessage("? Twitch settings saved successfully!");
+                LogMessage($"?? Integration enabled: {_settings.TwitchIntegrationEnabled}");
+                LogMessage($"?? Channel: {_settings.TwitchChannelName}");
+                LogMessage($"?? Enabled effects: {_settings.GetEnabledEffects().Count}");
+                
+                // Update effect manager settings
+                _effectManager.StackEffects = _settings.StackEffects;
+                _effectManager.QueueEffects = _settings.QueueEffects;
+            }
+            else
+            {
+                LogMessage("? Twitch settings cancelled");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"? Error opening Twitch settings: {ex.Message}");
+            MessageBox.Show($"Error opening Twitch settings: {ex.Message}", 
+                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    
+    private async void OnTwitchTestEvent(object? sender, TwitchEventArgs e)
+    {
+        LogMessage($"?? Twitch Test Event: {e.Username} - {e.Message}");
+        LogMessage($"?? Debug - Bits: {e.Bits}, GiftCount: {e.GiftCount}, SubTier: {e.SubTier}");
+        
+        // Comprehensive debug check
+        DebugEffectsAndSettings();
+        
+        try
+        {
+            if (e.Bits > 0)
+            {
+                // Handle bits donation
+                LogMessage($"?? Routing to HandleTwitchBits with {e.Bits} bits");
+                await _effectManager.HandleTwitchBits(e.Username, e.Bits);
+                LogMessage($"? Processed {e.Bits} bits test");
+            }
+            else if (e.GiftCount > 1)
+            {
+                // Handle gift subscriptions (multiple subs)
+                LogMessage($"?? Routing to HandleTwitchSubscription with {e.GiftCount} gift subs");
+                await _effectManager.HandleTwitchSubscription(e.Username, e.SubTier, e.GiftCount);
+                LogMessage($"? Processed {e.GiftCount}x {e.SubTier} gift subscription test");
+            }
+            else
+            {
+                // Handle single subscription
+                LogMessage($"?? Routing to HandleTwitchSubscription with single sub");
+                await _effectManager.HandleTwitchSubscription(e.Username, e.SubTier, 1);
+                LogMessage($"? Processed single {e.SubTier} subscription test");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"? Error processing Twitch test event: {ex.Message}");
+            LogMessage($"?? Stack trace: {ex.StackTrace}");
+        }
+    }
+    
+    private void DebugEffectsAndSettings()
+    {
+        LogMessage("=== EFFECTS AND SETTINGS DEBUG ===");
+        
+        // Check EffectManager settings
+        LogMessage($"?? EffectManager settings:");
+        LogMessage($"  - StackEffects: {_effectManager.StackEffects}");
+        LogMessage($"  - QueueEffects: {_effectManager.QueueEffects}");
+        LogMessage($"  - Active effects count: {_effectManager.GetActiveEffects().Count}");
+        LogMessage($"  - Queued effects count: {_effectManager.GetQueuedEffectCount()}");
+        
+        // Check enabled effects
+        var enabledEffects = _settings.GetEnabledEffects();
+        LogMessage($"?? Total enabled effects: {enabledEffects.Count}");
+        
+        if (enabledEffects.Count == 0)
+        {
+            LogMessage("? ERROR: NO EFFECTS ARE ENABLED!");
+            LogMessage("?? Would you like to enable all effects automatically?");
+            
+            var result = MessageBox.Show(
+                "No effects are currently enabled!\n\n" +
+                "This is why Test Gift Subs and Test Single Sub don't work.\n\n" +
+                "Would you like to enable all effects now?",
+                "No Effects Enabled",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+                
+            if (result == DialogResult.Yes)
+            {
+                try
+                {
+                    TwitchSettingsReset.EnableAllEffects();
+                    
+                    // Reload the effect configs to reflect the changes
+                    _settings.LoadEffectConfigsFromRegistry();
+                    
+                    LogMessage("? All effects have been enabled!");
+                    LogMessage("?? You can now test Gift Subs and Single Subs successfully!");
+                    
+                    MessageBox.Show(
+                        "? All effects have been enabled!\n\n" +
+                        "You can now test Gift Subs and Single Subs successfully!",
+                        "Effects Enabled",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"? Error enabling effects: {ex.Message}");
+                    MessageBox.Show($"Error enabling effects: {ex.Message}", "Error", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+        else
+        {
+            LogMessage("? Enabled effects:");
+            foreach (var effect in enabledEffects)
+            {
+                LogMessage($"  - {effect.Name} ({effect.Type})");
+            }
+        }
+        
+        // Check all effect states
+        LogMessage("?? All effect configurations:");
+        foreach (var kvp in _settings.EffectConfigs)
+        {
+            var effect = kvp.Value;
+            LogMessage($"  - {effect.Name}: {(effect.Enabled ? "? ENABLED" : "? DISABLED")}");
+        }
+        
+        // Check settings values
+        LogMessage("?? Current settings:");
+        LogMessage($"  - Integration Enabled: {_settings.TwitchIntegrationEnabled}");
+        LogMessage($"  - Channel: '{_settings.TwitchChannelName}'");
+        LogMessage($"  - Authenticated: {_settings.IsAuthenticated}");
+        LogMessage($"  - Tier1 Duration: {_settings.Tier1SubDuration}s");
+        LogMessage($"  - Tier2 Duration: {_settings.Tier2SubDuration}s");
+        LogMessage($"  - Tier3 Duration: {_settings.Tier3SubDuration}s");
+        LogMessage($"  - Prime Duration: {_settings.PrimeSubDuration}s>");
+        LogMessage($"  - Bits per second: {_settings.BitsPerSecond}");
+        LogMessage($"  - Max effects: {_settings.MaxSimultaneousEffects}");
+        LogMessage($"  - Effect delay: {_settings.MultiEffectDelayMs}ms");
+        
+        // Registry debug info
+        LogMessage("?? Registry debug info:");
+        TwitchSettingsReset.DebugRegistryValues();
+        
+        LogMessage("=== END DEBUG ===");
+        
+        // Offer comprehensive reset if settings seem corrupted
+        if (_settings.Tier1SubDuration == 0 || _settings.MaxSimultaneousEffects == 0)
+        {
+            LogMessage("?? WARNING: Some settings have invalid values (0)");
+            
+            var resetResult = MessageBox.Show(
+                "Some settings appear to be corrupted (have value 0).\n\n" +
+                "This can cause issues with effect duration and functionality.\n\n" +
+                "Would you like to reset all Twitch settings to defaults?",
+                "Corrupted Settings Detected",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+                
+            if (resetResult == DialogResult.Yes)
+            {
+                try
+                {
+                    TwitchSettingsReset.ResetAllTwitchSettings();
+                    LogMessage("? All Twitch settings have been reset to defaults!");
+                    MessageBox.Show(
+                        "? All Twitch settings have been reset to defaults!\n\n" +
+                        "Please restart the application for changes to take full effect.",
+                        "Settings Reset",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"? Error resetting settings: {ex.Message}");
+                    MessageBox.Show($"Error resetting settings: {ex.Message}", "Error", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+    }
+    
+    private void OnEffectApplied(object? sender, TwitchEffectEventArgs e)
+    {
+        LogMessage($"?? Effect Applied: {e.Effect.Name} by {e.Username} ({e.Trigger}) - Duration: {e.Duration.TotalSeconds}s");
+    }
+    
+    private void OnEffectStatusChanged(object? sender, string message)
+    {
+        LogMessage(message);
+    }
+    
     private void LogImageFormats()
     {
         try
         {
             LogMessage("=== Scanning for supported image formats ===");
             
-            var directories = new[] { _settings.ImagesDirectory, _settings.HudDirectory, _settings.BlurDirectory };
+            var directories = new[] { _settings.ImagesDirectory, _settings.HudDirectory };
             var totalFiles = 0;
             var formatCounts = new Dictionary<string, int>();
             
@@ -432,7 +664,7 @@ public class EffectTestModeForm : Form
                 LogMessage("No image files found. Add images to your configured directories to test!");
                 LogMessage($"Current directories: Images='{Path.GetFullPath(_settings.ImagesDirectory)}', HUD='{Path.GetFullPath(_settings.HudDirectory)}'");
                 LogMessage("");
-                LogMessage("?? WEBP TROUBLESHOOTING TIPS:");
+                LogMessage("??? WEBP TROUBLESHOOTING TIPS:");
                 LogMessage("• WebP files require Windows 10 (1903+) or Windows 11");
                 LogMessage("• Large WebP files may cause OutOfMemoryException");
                 LogMessage("• Try adding some PNG or JPG files as fallbacks");
@@ -533,7 +765,223 @@ public class EffectTestModeForm : Form
             LogMessage($"?? Warning: Could not save settings on close: {ex.Message}");
         }
         
+        // Unsubscribe from events
+        if (_effectManager != null)
+        {
+            _effectManager.EffectApplied -= OnEffectApplied;
+            _effectManager.EffectStatusChanged -= OnEffectStatusChanged;
+        }
+        
         LogMessage("?? Test mode closing...");
         base.OnFormClosing(e);
+    }
+    
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        try
+        {
+            // Disconnect from live events when form closes
+            _eventSubClient?.DisconnectAsync();
+            _eventSubClient?.Dispose();
+            _effectManager?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EffectTestModeForm: Disposal error: {ex.Message}");
+        }
+        
+        base.OnFormClosed(e);
+    }
+    
+    private async Task ToggleLiveEvents()
+    {
+        try
+        {
+            if (_connectLiveEventsButton.Text.Contains("Connect"))
+            {
+                // Connect to live events
+                _connectLiveEventsButton.Enabled = false;
+                _connectLiveEventsButton.Text = "?? Connecting...";
+                _connectLiveEventsButton.BackColor = Color.Yellow;
+                
+                LogMessage("?? Connecting to live Twitch events...");
+                LogMessage("?? DEBUG: Starting connection process...");
+                
+                // Check if we have valid credentials first
+                if (string.IsNullOrEmpty(_settings.TwitchAccessToken))
+                {
+                    LogMessage("? ERROR: No access token found!");
+                    LogMessage("?? Please authenticate with Twitch first in Twitch Settings");
+                    
+                    _connectLiveEventsButton.Text = "Connect Live Events";
+                    _connectLiveEventsButton.BackColor = Color.LightBlue;
+                    _connectLiveEventsButton.Enabled = true;
+                    return;
+                }
+                
+                if (string.IsNullOrEmpty(_settings.TwitchClientId) || string.IsNullOrEmpty(_settings.TwitchClientSecret))
+                {
+                    LogMessage("? ERROR: Missing Client ID or Client Secret!");
+                    LogMessage("?? Please set up your Twitch app credentials in Twitch Settings");
+                    
+                    _connectLiveEventsButton.Text = "Connect Live Events";
+                    _connectLiveEventsButton.BackColor = Color.LightBlue;
+                    _connectLiveEventsButton.Enabled = true;
+                    return;
+                }
+                
+                LogMessage($"?? DEBUG: Using channel: {_settings.TwitchChannelName}");
+                LogMessage($"?? DEBUG: Client ID length: {_settings.TwitchClientId.Length}");
+                LogMessage($"?? DEBUG: Access token length: {_settings.TwitchAccessToken.Length}");
+                
+                var success = await _eventSubClient.ConnectAsync();
+                
+                if (success)
+                {
+                    _connectLiveEventsButton.Text = "?? LIVE - Disconnect";
+                    _connectLiveEventsButton.BackColor = Color.LightGreen;
+                    LogMessage("?? Successfully connected to live Twitch events!");
+                    LogMessage("?? Real subs, bits, and follows will now trigger effects automatically!");
+                    LogMessage("?? Watch the debug output above for detailed connection info");
+                }
+                else
+                {
+                    _connectLiveEventsButton.Text = "Connect Live Events";
+                    _connectLiveEventsButton.BackColor = Color.LightCoral;
+                    LogMessage("? Failed to connect to live Twitch events");
+                    LogMessage("?? Check the debug output above for error details");
+                }
+                
+                _connectLiveEventsButton.Enabled = true;
+            }
+            else
+            {
+                // Disconnect from live events
+                _connectLiveEventsButton.Enabled = false;
+                _connectLiveEventsButton.Text = "?? Disconnecting...";
+                _connectLiveEventsButton.BackColor = Color.Yellow;
+                
+                LogMessage("?? Disconnecting from live Twitch events...");
+                
+                await _eventSubClient.DisconnectAsync();
+                
+                _connectLiveEventsButton.Text = "Connect Live Events";
+                _connectLiveEventsButton.BackColor = Color.LightBlue;
+                _connectLiveEventsButton.Enabled = true;
+                
+                LogMessage("?? Disconnected from live Twitch events");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"? Error toggling live events: {ex.Message}");
+            LogMessage($"?? Exception details: {ex}");
+            _connectLiveEventsButton.Text = "Connect Live Events";
+            _connectLiveEventsButton.BackColor = Color.LightCoral;
+            _connectLiveEventsButton.Enabled = true;
+        }
+    }
+    
+    private async void OnRealTwitchSubscription(object? sender, TwitchEventArgs e)
+    {
+        try
+        {
+            // Always marshal to UI thread for logging
+            this.Invoke(new Action(() => LogMessage($"?? REAL SUB: {e.Username} {e.Message}")));
+            
+            if (e.GiftCount > 1)
+            {
+                this.Invoke(new Action(() => LogMessage($"?? Processing {e.GiftCount} gift subs from {e.Username}")));
+                
+                try
+                {
+                    // Execute effect processing directly on UI thread to avoid cross-thread issues
+                    await this.Invoke(new Func<Task>(async () => 
+                        await _effectManager.HandleTwitchSubscription(e.Username, e.SubTier, e.GiftCount)));
+                }
+                catch (Exception ex)
+                {
+                    this.Invoke(new Action(() => LogMessage($"? Error processing gift subs: {ex.Message}")));
+                    Debug.WriteLine($"OnRealTwitchSubscription gift error: {ex}");
+                }
+            }
+            else
+            {
+                this.Invoke(new Action(() => LogMessage($"? Processing single sub from {e.Username}")));
+                
+                try
+                {
+                    // Execute effect processing directly on UI thread to avoid cross-thread issues
+                    await this.Invoke(new Func<Task>(async () => 
+                        await _effectManager.HandleTwitchSubscription(e.Username, e.SubTier, 1)));
+                }
+                catch (Exception ex)
+                {
+                    this.Invoke(new Action(() => LogMessage($"? Error processing single sub: {ex.Message}")));
+                    Debug.WriteLine($"OnRealTwitchSubscription single error: {ex}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OnRealTwitchSubscription outer error: {ex}");
+            try
+            {
+                this.Invoke(new Action(() => LogMessage($"? Critical error processing real subscription: {ex.Message}")));
+            }
+            catch
+            {
+                // Last resort logging
+                Debug.WriteLine($"Failed to log error to UI: {ex.Message}");
+            }
+        }
+    }
+    
+    private async void OnRealTwitchBits(object? sender, TwitchEventArgs e)
+    {
+        try
+        {
+            // Always marshal to UI thread for logging
+            this.Invoke(new Action(() => LogMessage($"?? REAL BITS: {e.Username} cheered {e.Bits} bits!")));
+            
+            try
+            {
+                // Execute effect processing directly on UI thread to avoid cross-thread issues
+                await this.Invoke(new Func<Task>(async () => 
+                    await _effectManager.HandleTwitchBits(e.Username, e.Bits)));
+            }
+            catch (Exception ex)
+            {
+                this.Invoke(new Action(() => LogMessage($"? Error processing bits: {ex.Message}")));
+                Debug.WriteLine($"OnRealTwitchBits error: {ex}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OnRealTwitchBits outer error: {ex}");
+            try
+            {
+                this.Invoke(new Action(() => LogMessage($"? Critical error processing real bits: {ex.Message}")));
+            }
+            catch
+            {
+                // Last resort logging
+                Debug.WriteLine($"Failed to log error to UI: {ex.Message}");
+            }
+        }
+    }
+    
+    private void OnRealTwitchFollow(object? sender, TwitchEventArgs e)
+    {
+        try
+        {
+            // Always marshal to UI thread for logging
+            this.Invoke(new Action(() => LogMessage($"?? REAL FOLLOW: {e.Username} followed!")));
+            this.Invoke(new Action(() => LogMessage($"?? Welcome {e.Username} to the stream!")));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OnRealTwitchFollow error: {ex}");
+        }
     }
 }
