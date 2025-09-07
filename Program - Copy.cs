@@ -16,9 +16,41 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new MainForm());
+        try
+        {
+            Debug.WriteLine("Program: Starting application...");
+            
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            
+            Debug.WriteLine("Program: Creating MainForm...");
+            
+            var mainForm = new MainForm();
+            
+            Debug.WriteLine("Program: Running application...");
+            
+            Application.Run(mainForm);
+            
+            Debug.WriteLine("Program: Application exited normally");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Program: FATAL ERROR: {ex.Message}");
+            Debug.WriteLine($"Program: Exception details: {ex}");
+            
+            // Try to show error to user
+            try
+            {
+                MessageBox.Show($"Fatal application error:\n\n{ex.Message}\n\nCheck the debug output for more details.", 
+                    "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch
+            {
+                // If even MessageBox fails, just exit
+            }
+            
+            Environment.Exit(1);
+        }
     }
 }
 
@@ -390,74 +422,98 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = $"KHShuffler {Program.Version}";
-        Width = 1200;
-        Height = 700; // Increased height for new controls
+        try
+        {
+            Debug.WriteLine("MainForm: Starting initialization...");
+            
+            Text = $"KHShuffler {Program.Version}";
+            Width = 1200;
+            Height = 700; // Increased height for new controls
 
-        // Initialize effect manager
-        _effectManager = new EffectManager(this);
+            Debug.WriteLine("MainForm: Basic properties set, initializing effect manager...");
+            
+            // Initialize effect manager
+            _effectManager = new EffectManager(this);
+            
+            Debug.WriteLine("MainForm: Effect manager initialized, setting up UI...");
 
-        // Set up process list columns
-        _processList.Columns.Add("Title", 400);
-        _processList.Columns.Add("Process", 150);
-        _processList.Columns.Add("PID", 80);
+            // Set up process list columns
+            _processList.Columns.Add("Title", 400);
+            _processList.Columns.Add("Process", 150);
+            _processList.Columns.Add("PID", 80);
 
-        // Set up targets list columns
-        _targets.Columns.Add("Title", 500);
-        _targets.Columns.Add("Process", 200);
-        _targets.Columns.Add("PID", 100);
+            // Set up targets list columns
+            _targets.Columns.Add("Title", 500);
+            _targets.Columns.Add("Process", 200);
+            _targets.Columns.Add("PID", 100);
 
-        // Configure process list behavior
-        _processList.ItemCheck += ProcessList_ItemCheck;
-        _processList.MouseClick += ProcessList_MouseClick;
-        _processList.HideSelection = true; // Hide blue selection highlighting
-        _processList.MultiSelect = false; // Disable multi-selection
-        _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
+            // Configure process list behavior
+            _processList.ItemCheck += ProcessList_ItemCheck;
+            _processList.MouseClick += ProcessList_MouseClick;
+            _processList.HideSelection = true; // Hide blue selection highlighting
+            _processList.MultiSelect = false; // Disable multi-selection
+            _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
 
-        var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
-        rightPanel.Controls.Add(new Label { Text = "Min seconds" });
-        rightPanel.Controls.Add(_minSeconds);
-        rightPanel.Controls.Add(new Label { Text = "Max seconds" });
-        rightPanel.Controls.Add(_maxSeconds);
-        rightPanel.Controls.Add(_refreshButton);
-        rightPanel.Controls.Add(_addButton);
-        rightPanel.Controls.Add(_removeButton);
-        rightPanel.Controls.Add(_startButton);
-        rightPanel.Controls.Add(_stopButton);
-        rightPanel.Controls.Add(_pauseButton);
-        rightPanel.Controls.Add(_forceBorderless);
-        rightPanel.Controls.Add(_darkModeToggle);
-        
-        // Add effects group
-        SetupEffectsUI();
-        rightPanel.Controls.Add(_effectsGroup);
+            var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
+            rightPanel.Controls.Add(new Label { Text = "Min seconds" });
+            rightPanel.Controls.Add(_minSeconds);
+            rightPanel.Controls.Add(new Label { Text = "Max seconds" });
+            rightPanel.Controls.Add(_maxSeconds);
+            rightPanel.Controls.Add(_refreshButton);
+            rightPanel.Controls.Add(_addButton);
+            rightPanel.Controls.Add(_removeButton);
+            rightPanel.Controls.Add(_startButton);
+            rightPanel.Controls.Add(_stopButton);
+            rightPanel.Controls.Add(_pauseButton);
+            rightPanel.Controls.Add(_forceBorderless);
+            rightPanel.Controls.Add(_darkModeToggle);
+            
+            // Add effects group
+            SetupEffectsUI();
+            rightPanel.Controls.Add(_effectsGroup);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300 };
-        split.Panel1.Controls.Add(_processList);
-        split.Panel2.Controls.Add(_targets);
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300 };
+            split.Panel1.Controls.Add(_processList);
+            split.Panel2.Controls.Add(_targets);
 
-        Controls.Add(split);
-        Controls.Add(rightPanel);
+            Controls.Add(split);
+            Controls.Add(rightPanel);
 
-        _refreshButton.Click += (_, __) => RefreshProcesses();
-        _addButton.Click += (_, __) => AddSelectedProcesses();
-        _removeButton.Click += (_, __) => RemoveSelectedTargets();
-        _startButton.Click += (_, __) => StartShuffle();
-        _stopButton.Click += (_, __) => StopShuffle();
-        _pauseButton.Click += (_, __) => TogglePause();
-        _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
-        _testModeButton.Click += (_, __) => OpenTestMode();
+            _refreshButton.Click += (_, __) => RefreshProcesses();
+            _addButton.Click += (_, __) => AddSelectedProcesses();
+            _removeButton.Click += (_, __) => RemoveSelectedTargets();
+            _startButton.Click += (_, __) => StartShuffle();
+            _stopButton.Click += (_, __) => StopShuffle();
+            _pauseButton.Click += (_, __) => TogglePause();
+            _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
+            _testModeButton.Click += (_, __) => OpenTestMode();
 
-        _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+            _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
 
-        // Set up application exit handler for cleanup
-        Application.ApplicationExit += OnApplicationExit;
+            // Set up application exit handler for cleanup
+            Application.ApplicationExit += OnApplicationExit;
 
-        // Load and apply saved dark mode preference
-        _darkModeToggle.Checked = Settings.DarkMode;
-        ApplyTheme();
+            // Load and apply saved dark mode preference
+            _darkModeToggle.Checked = Settings.DarkMode;
+            ApplyTheme();
 
-        RefreshProcesses();
+            Debug.WriteLine("MainForm: Refreshing processes...");
+            RefreshProcesses();
+            
+            Debug.WriteLine("MainForm: Initialization complete!");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"MainForm: CRITICAL ERROR during initialization: {ex.Message}");
+            Debug.WriteLine($"MainForm: Exception details: {ex}");
+            
+            // Show error to user and exit gracefully
+            MessageBox.Show($"Critical error during application startup:\n\n{ex.Message}\n\nThe application will close.", 
+                "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            
+            // Exit the application
+            Environment.Exit(1);
+        }
     }
     
     private void SetupEffectsUI()
@@ -467,7 +523,7 @@ public class MainForm : Form
         
         var infoLabel = new Label 
         { 
-            Text = "Create 'images', 'sounds', and 'hud' folders\nfor effect media files.\n\n?? Directory settings are saved automatically.",
+            Text = "Create 'images', 'sounds', and 'hud' folders\nfor effect media files.\n\nDirectory settings are saved automatically.",
             AutoSize = true,
             Font = new Font("Segoe UI", 8),
             ForeColor = Color.Gray
@@ -484,7 +540,8 @@ public class MainForm : Form
     {
         try
         {
-            var testForm = new EffectTestModeForm(this);
+            var twitchEffectSettings = new TwitchEffectSettings();
+            var testForm = new EffectTestModeForm(twitchEffectSettings);
             testForm.ShowDialog(this);
         }
         catch (Exception ex)
