@@ -14,13 +14,13 @@ public class TwitchSetupDialog : Form
     private readonly Button _createAppButton = new() { Text = "1. Create Twitch App", Size = new Size(200, 35) };
     private readonly Button _setupGuideButton = new() { Text = "2. View Setup Guide", Size = new Size(200, 35) };
     private readonly Button _closeButton = new() { Text = "Close", Size = new Size(100, 35) };
-    
+
     public TwitchSetupDialog()
     {
         InitializeDialog();
         SetupEventHandlers();
     }
-    
+
     private void InitializeDialog()
     {
         Text = "Twitch Integration Setup";
@@ -29,7 +29,7 @@ public class TwitchSetupDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        
+
         var mainPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -37,7 +37,7 @@ public class TwitchSetupDialog : Form
             RowCount = 6,
             Padding = new Padding(20)
         };
-        
+
         // Title
         var titleLabel = new Label
         {
@@ -48,7 +48,7 @@ public class TwitchSetupDialog : Form
             Size = new Size(450, 40),
             TextAlign = ContentAlignment.MiddleCenter
         };
-        
+
         // Instructions
         var instructionsLabel = new Label
         {
@@ -59,7 +59,7 @@ public class TwitchSetupDialog : Form
             Size = new Size(450, 80),
             TextAlign = ContentAlignment.TopLeft
         };
-        
+
         // Steps
         var stepsLabel = new Label
         {
@@ -73,7 +73,7 @@ public class TwitchSetupDialog : Form
             Size = new Size(450, 120),
             TextAlign = ContentAlignment.TopLeft
         };
-        
+
         // Buttons panel
         var buttonPanel = new FlowLayoutPanel
         {
@@ -81,28 +81,28 @@ public class TwitchSetupDialog : Form
             Size = new Size(450, 50),
             Padding = new Padding(10)
         };
-        
+
         _createAppButton.BackColor = Color.LightGreen;
         _setupGuideButton.BackColor = Color.LightBlue;
         _closeButton.BackColor = Color.LightCoral;
-        
+
         buttonPanel.Controls.AddRange(new Control[] { _createAppButton, _setupGuideButton, _closeButton });
-        
-        mainPanel.Controls.AddRange(new Control[] 
-        { 
-            titleLabel, instructionsLabel, stepsLabel, buttonPanel 
+
+        mainPanel.Controls.AddRange(new Control[]
+        {
+            titleLabel, instructionsLabel, stepsLabel, buttonPanel
         });
-        
+
         Controls.Add(mainPanel);
     }
-    
+
     private void SetupEventHandlers()
     {
         _createAppButton.Click += (_, __) => OpenTwitchDeveloperConsole();
         _setupGuideButton.Click += (_, __) => OpenSetupGuide();
         _closeButton.Click += (_, __) => Close();
     }
-    
+
     private void OpenTwitchDeveloperConsole()
     {
         try
@@ -112,12 +112,12 @@ public class TwitchSetupDialog : Form
                 FileName = "https://dev.twitch.tv/console",
                 UseShellExecute = true
             });
-            
-            MessageBox.Show("?? Opened Twitch Developer Console in your browser!\n\n" +
+
+            MessageBox.Show("Opened Twitch Developer Console in your browser!\n\n" +
                           "Create a new application with these settings:\n" +
-                          "• Name: KHShuffler-YourUsername\n" +
-                          "• OAuth Redirect URLs: http://localhost:3000/auth/callback\n" +
-                          "• Category: Game Integration", 
+                          "ï¿½ Name: KHShuffler-YourUsername\n" +
+                          "ï¿½ OAuth Redirect URLs: http://localhost:3000/auth/callback\n" +
+                          "ï¿½ Category: Game Integration",
                           "Twitch App Creation", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
@@ -126,13 +126,13 @@ public class TwitchSetupDialog : Form
                           "Browser Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
-    
+
     private void OpenSetupGuide()
     {
         try
         {
             var setupGuidePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TWITCH_SETUP_GUIDE.md");
-            
+
             if (File.Exists(setupGuidePath))
             {
                 Process.Start(new ProcessStartInfo
@@ -152,8 +152,8 @@ public class TwitchSetupDialog : Form
                                  "5. Replace 'your_client_secret_here' with your Client Secret\n" +
                                  "6. Build the project and try authentication again\n\n" +
                                  "For detailed instructions, see TWITCH_SETUP_GUIDE.md";
-                
-                MessageBox.Show(instructions, "Setup Instructions", 
+
+                MessageBox.Show(instructions, "Setup Instructions",
                               MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
