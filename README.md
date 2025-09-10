@@ -10,7 +10,7 @@
 ## Quick Start
 
 ### 1. Launch the Application
-- Run `BetterGameShuffler.exe`
+- Run `KHShuffler.exe`
 
 ### 2. Add Your Games
 1. Start your games first, I recommend clicking on New Game in each game to prevent accidentally pressing "Back" on the title screen during shuffling
@@ -58,6 +58,7 @@
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64
+
 
 
 
