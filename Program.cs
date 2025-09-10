@@ -1,23 +1,57 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using BetterGameShuffler.TwitchIntegration;
 
 namespace BetterGameShuffler;
 
 internal static class Program
 {
-    public const string Version = "v1.0.1";
+    public const string Version = "v2.0.0";
 
     [STAThread]
     static void Main()
     {
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new MainForm());
+        try
+        {
+            Debug.WriteLine("Program: Starting application...");
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            Debug.WriteLine("Program: Creating MainForm...");
+
+            var mainForm = new MainForm();
+
+            Debug.WriteLine("Program: Running application...");
+
+            Application.Run(mainForm);
+
+            Debug.WriteLine("Program: Application exited normally");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Program: FATAL ERROR: {ex.Message}");
+            Debug.WriteLine($"Program: Exception details: {ex}");
+
+            // Try to show error to user
+            try
+            {
+                MessageBox.Show($"Fatal application error:\n\n{ex.Message}\n\nCheck the debug output for more details.",
+                    "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch
+            {
+                // If even MessageBox fails, just exit
+            }
+
+            Environment.Exit(1);
+        }
     }
 }
 
@@ -56,6 +90,135 @@ public static class Settings
             catch
             {
                 // Silently fail if registry write fails
+            }
+        }
+    }
+
+    // Twitch Effects Directory Settings
+    public static string ImagesDirectory
+    {
+        get
+        {
+            try
+            {
+                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_ImagesDirectory", "images");
+                var result = value?.ToString() ?? "images";
+                Debug.WriteLine($"Settings.ImagesDirectory GET: '{result}' (Raw: {value})");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.ImagesDirectory GET ERROR: {ex.Message}");
+                return "images"; // Default value
+            }
+        }
+        set
+        {
+            try
+            {
+                Debug.WriteLine($"Settings.ImagesDirectory SET: '{value}' -> Registry");
+                Registry.SetValue(RegistryKeyPath, "TwitchEffects_ImagesDirectory", value ?? "images", RegistryValueKind.String);
+                Debug.WriteLine($"Settings.ImagesDirectory SET: SUCCESS");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.ImagesDirectory SET ERROR: {ex.Message}");
+            }
+        }
+    }
+
+    public static string SoundsDirectory
+    {
+        get
+        {
+            try
+            {
+                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_SoundsDirectory", "sounds");
+                var result = value?.ToString() ?? "sounds";
+                Debug.WriteLine($"Settings.SoundsDirectory GET: '{result}' (Raw: {value})");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.SoundsDirectory GET ERROR: {ex.Message}");
+                return "sounds"; // Default value
+            }
+        }
+        set
+        {
+            try
+            {
+                Debug.WriteLine($"Settings.SoundsDirectory SET: '{value}' -> Registry");
+                Registry.SetValue(RegistryKeyPath, "TwitchEffects_SoundsDirectory", value ?? "sounds", RegistryValueKind.String);
+                Debug.WriteLine($"Settings.SoundsDirectory SET: SUCCESS");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.SoundsDirectory SET ERROR: {ex.Message}");
+            }
+        }
+    }
+
+    public static string HudDirectory
+    {
+        get
+        {
+            try
+            {
+                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_HudDirectory", "hud");
+                var result = value?.ToString() ?? "hud";
+                Debug.WriteLine($"Settings.HudDirectory GET: '{result}' (Raw: {value})");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.HudDirectory GET ERROR: {ex.Message}");
+                return "hud"; // Default value
+            }
+        }
+        set
+        {
+            try
+            {
+                Debug.WriteLine($"Settings.HudDirectory SET: '{value}' -> Registry");
+                Registry.SetValue(RegistryKeyPath, "TwitchEffects_HudDirectory", value ?? "hud", RegistryValueKind.String);
+                Debug.WriteLine($"Settings.HudDirectory SET: SUCCESS");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.HudDirectory SET ERROR: {ex.Message}");
+            }
+        }
+    }
+
+    public static string BlurDirectory
+    {
+        get
+        {
+            try
+            {
+                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_BlurDirectory", "blur");
+                var result = value?.ToString() ?? "blur";
+                Debug.WriteLine($"Settings.BlurDirectory GET: '{result}' (Raw: {value})");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.BlurDirectory GET ERROR: {ex.Message}");
+                return "blur"; // Default value
+            }
+        }
+        set
+        {
+            try
+            {
+                Debug.WriteLine($"Settings.BlurDirectory SET: '{value}' -> Registry");
+                Registry.SetValue(RegistryKeyPath, "TwitchEffects_BlurDirectory", value ?? "blur", RegistryValueKind.String);
+                Debug.WriteLine($"Settings.BlurDirectory SET: SUCCESS");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Settings.BlurDirectory SET ERROR: {ex.Message}");
             }
         }
     }
@@ -237,8 +400,8 @@ public class MainForm : Form
     private TimeSpan _remainingTime = TimeSpan.Zero;
     private bool _isSwitching = false;
 
-    private readonly CheckBox _forceBorderless = new() { Text = "Force borderless fullscreen", Checked = true, AutoSize = true };
     private readonly SlidingToggle _darkModeToggle = new();
+    private readonly CheckBox _forceBorderless = new() { Text = "Force borderless fullscreen", Checked = true, AutoSize = true };
 
     // Dark mode color schemes
     private static readonly Color DarkBackground = Color.FromArgb(32, 32, 32);
@@ -249,68 +412,152 @@ public class MainForm : Form
     // CRITICAL FIX: Store original window styles to prevent resizing issues
     private readonly ConcurrentDictionary<IntPtr, int> _originalWindowStyles = new();
 
+    // Twitch Effects System
+    private readonly EffectManager _effectManager;
+    private readonly Dictionary<string, DateTime> _blacklistedGames = new();
+
+    // Test Mode UI
+    private readonly Button _testModeButton = new() { Text = "Test Effects", Size = new Size(110, 25), TextAlign = ContentAlignment.MiddleCenter };
+    private readonly GroupBox _effectsGroup = new() { Text = "Twitch Effects", AutoSize = true, Width = 420 };
+    private readonly CheckBox _enableEffects = new() { Text = "Enable Effects", AutoSize = true, Checked = true };
+
     public MainForm()
     {
-        Text = $"KHShuffler {Program.Version}";
-        Width = 1200;
-        Height = 600;
+        try
+        {
+            Debug.WriteLine("MainForm: Starting initialization...");
 
-        // Set up process list columns
-        _processList.Columns.Add("Title", 400);
-        _processList.Columns.Add("Process", 150);
-        _processList.Columns.Add("PID", 80);
+            Text = $"KHShuffler {Program.Version}";
+            Width = 1200;
+            Height = 700; // Increased height for new controls
 
-        // Set up targets list columns
-        _targets.Columns.Add("Title", 500);
-        _targets.Columns.Add("Process", 200);
-        _targets.Columns.Add("PID", 100);
+            Debug.WriteLine("MainForm: Basic properties set, initializing effect manager...");
 
-        // Configure process list behavior
-        _processList.ItemCheck += ProcessList_ItemCheck;
-        _processList.MouseClick += ProcessList_MouseClick;
-        _processList.HideSelection = true; // Hide blue selection highlighting
-        _processList.MultiSelect = false; // Disable multi-selection
-        _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
+            // Initialize effect manager
+            _effectManager = new EffectManager(this);
 
-        var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
-        rightPanel.Controls.Add(new Label { Text = "Min seconds" });
-        rightPanel.Controls.Add(_minSeconds);
-        rightPanel.Controls.Add(new Label { Text = "Max seconds" });
-        rightPanel.Controls.Add(_maxSeconds);
-        rightPanel.Controls.Add(_refreshButton);
-        rightPanel.Controls.Add(_addButton);
-        rightPanel.Controls.Add(_removeButton);
-        rightPanel.Controls.Add(_startButton);
-        rightPanel.Controls.Add(_stopButton);
-        rightPanel.Controls.Add(_pauseButton);
-        rightPanel.Controls.Add(_forceBorderless);
-        rightPanel.Controls.Add(_darkModeToggle);
+            Debug.WriteLine("MainForm: Effect manager initialized, setting up UI...");
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300 };
-        split.Panel1.Controls.Add(_processList);
-        split.Panel2.Controls.Add(_targets);
+            // Set up process list columns
+            _processList.Columns.Add("Title", 400);
+            _processList.Columns.Add("Process", 150);
+            _processList.Columns.Add("PID", 80);
 
-        Controls.Add(split);
-        Controls.Add(rightPanel);
+            // Set up targets list columns
+            _targets.Columns.Add("Title", 500);
+            _targets.Columns.Add("Process", 200);
+            _targets.Columns.Add("PID", 100);
 
-        _refreshButton.Click += (_, __) => RefreshProcesses();
-        _addButton.Click += (_, __) => AddSelectedProcesses();
-        _removeButton.Click += (_, __) => RemoveSelectedTargets();
-        _startButton.Click += (_, __) => StartShuffle();
-        _stopButton.Click += (_, __) => StopShuffle();
-        _pauseButton.Click += (_, __) => TogglePause();
-        _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
+            // Configure process list behavior
+            _processList.ItemCheck += ProcessList_ItemCheck;
+            _processList.MouseClick += ProcessList_MouseClick;
+            _processList.HideSelection = true; // Hide blue selection highlighting
+            _processList.MultiSelect = false; // Disable multi-selection
+            _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
 
-        _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+            var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
+            rightPanel.Controls.Add(new Label { Text = "Min seconds" });
+            rightPanel.Controls.Add(_minSeconds);
+            rightPanel.Controls.Add(new Label { Text = "Max seconds" });
+            rightPanel.Controls.Add(_maxSeconds);
+            rightPanel.Controls.Add(_refreshButton);
+            rightPanel.Controls.Add(_addButton);
+            rightPanel.Controls.Add(_removeButton);
+            rightPanel.Controls.Add(_startButton);
+            rightPanel.Controls.Add(_stopButton);
+            rightPanel.Controls.Add(_pauseButton);
+            rightPanel.Controls.Add(_forceBorderless);
+            rightPanel.Controls.Add(_darkModeToggle);
 
-        // Set up application exit handler for cleanup
-        Application.ApplicationExit += OnApplicationExit;
+            // Add effects group
+            SetupEffectsUI();
+            rightPanel.Controls.Add(_effectsGroup);
 
-        // Load and apply saved dark mode preference
-        _darkModeToggle.Checked = Settings.DarkMode;
-        ApplyTheme();
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300 };
+            split.Panel1.Controls.Add(_processList);
+            split.Panel2.Controls.Add(_targets);
 
-        RefreshProcesses();
+            Controls.Add(split);
+            Controls.Add(rightPanel);
+
+            _refreshButton.Click += (_, __) => RefreshProcesses();
+            _addButton.Click += (_, __) => AddSelectedProcesses();
+            _removeButton.Click += (_, __) => RemoveSelectedTargets();
+            _startButton.Click += (_, __) => StartShuffle();
+            _stopButton.Click += (_, __) => StopShuffle();
+            _pauseButton.Click += (_, __) => TogglePause();
+            _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
+            _testModeButton.Click += (_, __) => OpenTestMode();
+
+            _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
+
+            // Set up application exit handler for cleanup
+            Application.ApplicationExit += OnApplicationExit;
+
+            // Load and apply saved dark mode preference
+            _darkModeToggle.Checked = Settings.DarkMode;
+            ApplyTheme();
+
+            Debug.WriteLine("MainForm: Refreshing processes...");
+            RefreshProcesses();
+
+            Debug.WriteLine("MainForm: Initialization complete!");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"MainForm: CRITICAL ERROR during initialization: {ex.Message}");
+            Debug.WriteLine($"MainForm: Exception details: {ex}");
+
+            // Show error to user and exit gracefully
+            MessageBox.Show($"Critical error during application startup:\n\n{ex.Message}\n\nThe application will close.",
+                "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+            // Exit the application
+            Environment.Exit(1);
+        }
+    }
+
+    private void SetupEffectsUI()
+    {
+        var testPanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            Width = 400,
+            Padding = new Padding(3)
+        };
+
+        testPanel.Controls.AddRange(new Control[] { _enableEffects, _testModeButton });
+
+        var infoLabel = new Label
+        {
+            Text = "Create 'images', 'sounds', and 'hud' folders\nfor effect media files.\n\nDirectory settings are saved automatically.",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 8),
+            ForeColor = Color.Gray
+        };
+
+        _effectsGroup.Controls.AddRange(new Control[]
+        {
+            testPanel,
+            infoLabel
+        });
+    }
+
+    private void OpenTestMode()
+    {
+        try
+        {
+            var twitchEffectSettings = new TwitchEffectSettings();
+            // CRITICAL FIX: Pass both MainForm AND the EXISTING EffectManager instance
+            // This ensures the test mode uses the same EffectManager as the real shuffler
+            var testForm = new EffectTestModeForm(twitchEffectSettings, this, _effectManager);
+            testForm.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error opening test mode: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     protected override bool ShowWithoutActivation => _isShuffling;
@@ -434,19 +681,19 @@ public class MainForm : Form
 
             // Step 2: More conservative CPU affinity restoration for rendering stability
             int totalCores = Environment.ProcessorCount;
-            
+
             // Start with even fewer cores for KH0.2 rendering stability
             int quarterCores = Math.Max(2, totalCores / 4);
             IntPtr quarterAffinityMask = (IntPtr)((1L << quarterCores) - 1);
             process.ProcessorAffinity = quarterAffinityMask;
             Thread.Sleep(100); // Let rendering threads stabilize
-            
+
             // Then half cores
             int halfCores = Math.Max(4, totalCores / 2);
             IntPtr halfAffinityMask = (IntPtr)((1L << halfCores) - 1);
             process.ProcessorAffinity = halfAffinityMask;
             Thread.Sleep(125); // Longer GPU thread stabilization
-            
+
             // Finally restore full affinity
             IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
             process.ProcessorAffinity = fullAffinityMask;
@@ -462,11 +709,11 @@ public class MainForm : Form
 
             int resumed = 0;
             const int batchSize = 6; // Reduced from 8 for better stability
-            
+
             for (int i = 0; i < threadsToResume.Count; i += batchSize)
             {
                 var batch = threadsToResume.Skip(i).Take(batchSize);
-                
+
                 foreach (var thread in batch)
                 {
                     try
@@ -487,7 +734,7 @@ public class MainForm : Form
                     }
                     catch { }
                 }
-                
+
                 // LONGER delays between batches for rendering thread stabilization
                 if (i + batchSize < threadsToResume.Count)
                 {
@@ -900,6 +1147,7 @@ public class MainForm : Form
                 button.ForeColor = DarkText;
                 button.FlatStyle = FlatStyle.Flat;
                 button.FlatAppearance.BorderColor = DarkBorder;
+                button.FlatAppearance.BorderSize = 1;
                 break;
             case Label label:
                 label.ForeColor = DarkText;
@@ -913,6 +1161,20 @@ public class MainForm : Form
                 break;
             case SlidingToggle toggle:
                 toggle.ForeColor = DarkText;
+                break;
+            case GroupBox groupBox:
+                groupBox.ForeColor = DarkText;
+                foreach (Control child in groupBox.Controls)
+                {
+                    ApplyDarkThemeToControl(child);
+                }
+                break;
+            case FlowLayoutPanel panel:
+                panel.BackColor = DarkBackground;
+                foreach (Control child in panel.Controls)
+                {
+                    ApplyDarkThemeToControl(child);
+                }
                 break;
         }
     }
@@ -939,8 +1201,206 @@ public class MainForm : Form
             case SlidingToggle toggle:
                 toggle.ForeColor = SystemColors.ControlText;
                 break;
+            case GroupBox groupBox:
+                groupBox.ForeColor = SystemColors.ControlText;
+                foreach (Control child in groupBox.Controls)
+                {
+                    ApplyLightThemeToControl(child);
+                }
+                break;
+            case FlowLayoutPanel panel:
+                panel.BackColor = SystemColors.Control;
+                foreach (Control child in panel.Controls)
+                {
+                    ApplyLightThemeToControl(child);
+                }
+                break;
         }
     }
+
+    // Add these public methods for effect integration:
+    public int MinSeconds => (int)_minSeconds.Value;
+    public int MaxSeconds => (int)_maxSeconds.Value;
+
+    public void SetTimerRange(int min, int max)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => SetTimerRange(min, max)));
+            return;
+        }
+
+        _minSeconds.Value = Math.Max(_minSeconds.Minimum, Math.Min(_minSeconds.Maximum, min));
+        _maxSeconds.Value = Math.Max(_maxSeconds.Minimum, Math.Min(_maxSeconds.Maximum, max));
+    }
+
+    public List<string> GetTargetGameNames()
+    {
+        var gameNames = new List<string>();
+        if (InvokeRequired)
+        {
+            Invoke(new Action(() =>
+            {
+                foreach (ListViewItem item in _targets.Items)
+                {
+                    // Use process name instead of window title for unique identification
+                    var processName = item.SubItems.Count > 1 ? item.SubItems[1].Text : "Unknown";
+                    gameNames.Add(processName);
+                }
+            }));
+        }
+        else
+        {
+            foreach (ListViewItem item in _targets.Items)
+            {
+                // Use process name instead of window title for unique identification
+                var processName = item.SubItems.Count > 1 ? item.SubItems[1].Text : "Unknown";
+                gameNames.Add(processName);
+            }
+        }
+        return gameNames;
+    }
+
+    /// <summary>
+    /// Gets target game information including both window titles and process names
+    /// </summary>
+    public Dictionary<string, string> GetTargetGameInfo()
+    {
+        var gameInfo = new Dictionary<string, string>(); // Key: ProcessName, Value: WindowTitle
+        if (InvokeRequired)
+        {
+            Invoke(new Action(() =>
+            {
+                foreach (ListViewItem item in _targets.Items)
+                {
+                    var processName = item.SubItems.Count > 1 ? item.SubItems[1].Text : "Unknown";
+                    var windowTitle = item.Text;
+                    gameInfo[processName] = windowTitle;
+                }
+            }));
+        }
+        else
+        {
+            foreach (ListViewItem item in _targets.Items)
+            {
+                var processName = item.SubItems.Count > 1 ? item.SubItems[1].Text : "Unknown";
+                var windowTitle = item.Text;
+                gameInfo[processName] = windowTitle;
+            }
+        }
+        return gameInfo;
+    }
+
+    /// <summary>
+    /// Gets the window title for a specific process name
+    /// </summary>
+    public string GetWindowTitleForProcess(string processName)
+    {
+        var gameInfo = GetTargetGameInfo();
+        return gameInfo.TryGetValue(processName, out var windowTitle) ? windowTitle : processName;
+    }
+
+    /// <summary>
+    /// Gets the process name for a specific window title (reverse lookup)
+    /// </summary>
+    public string GetProcessNameForGame(string windowTitle)
+    {
+        var gameInfo = GetTargetGameInfo();
+        // Reverse lookup - find process name by window title
+        var entry = gameInfo.FirstOrDefault(kvp => kvp.Value.Equals(windowTitle, StringComparison.OrdinalIgnoreCase));
+        return !string.IsNullOrEmpty(entry.Key) ? entry.Key : windowTitle;
+    }
+
+    public void BlacklistGame(string gameName, TimeSpan duration)
+    {
+        _blacklistedGames[gameName] = DateTime.UtcNow.Add(duration);
+        Debug.WriteLine($"Blacklisted {gameName} until {_blacklistedGames[gameName]}");
+    }
+
+    /// <summary>
+    /// Public method for EffectManager to suspend a specific process by PID
+    /// </summary>
+    public bool SuspendProcessByPid(int pid, string mode = "PriorityOnly")
+    {
+        try
+        {
+            Debug.WriteLine($"SuspendProcessByPid: Suspending PID {pid} with mode {mode}");
+
+            // Use the same logic as SwitchToNextWindow
+            switch (mode.ToLowerInvariant())
+            {
+                case "priorityonly":
+                    var success = SuspendProcessPriorityOnly(pid);
+                    if (success)
+                    {
+                        _suspendedProcesses[(int)pid] = true;
+                        Debug.WriteLine($"SuspendProcessByPid: Successfully suspended PID {pid} (PriorityOnly mode)");
+                    }
+                    return success;
+
+                case "threads":
+                case "normal":
+                    var threadSuccess = SuspendProcessWithThreads(pid);
+                    if (threadSuccess)
+                    {
+                        _suspendedProcesses[(int)pid] = true;
+                        Debug.WriteLine($"SuspendProcessByPid: Successfully suspended PID {pid} (Threads mode)");
+                    }
+                    return threadSuccess;
+
+                default:
+                    Debug.WriteLine($"SuspendProcessByPid: Unknown suspension mode '{mode}', using PriorityOnly");
+                    var defaultSuccess = SuspendProcessPriorityOnly(pid);
+                    if (defaultSuccess)
+                    {
+                        _suspendedProcesses[(int)pid] = true;
+                    }
+                    return defaultSuccess;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SuspendProcessByPid: Error suspending PID {pid}: {ex.Message}");
+            return false;
+        }
+    }
+
+    // NEW: Add methods to get current active game information for Mirror Mode
+    public IntPtr GetCurrentActiveGameWindow()
+    {
+        if (InvokeRequired)
+        {
+            return (IntPtr)Invoke(new Func<IntPtr>(() => GetCurrentActiveGameWindow()));
+        }
+
+        if (!_isShuffling || _currentIndex < 0 || _currentIndex >= _targetWindows.Count)
+        {
+            return IntPtr.Zero;
+        }
+
+        var currentWindow = _targetWindows[_currentIndex];
+
+        // Verify the window is still valid
+        if (NativeMethods.IsWindow(currentWindow))
+        {
+            return currentWindow;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    public string GetCurrentActiveGameTitle()
+    {
+        var window = GetCurrentActiveGameWindow();
+        if (window == IntPtr.Zero)
+        {
+            return "";
+        }
+
+        return GetWindowText(window);
+    }
+
+    public bool IsShuffling => _isShuffling;
 
     private void ScheduleNextSwitch(bool immediate = false)
     {
@@ -1117,59 +1577,175 @@ public class MainForm : Form
 
             Debug.WriteLine($"Valid windows found: {validWindows.Count}");
 
-            if (validWindows.Count == 0)
+            // Filter out blacklisted games
+            var filteredWindows = validWindows.Where(window =>
             {
-                Debug.WriteLine("No valid windows - stopping shuffle");
-                StopShuffle();
-                return;
-            }
+                var title = GetWindowText(window);
+                return !_blacklistedGames.Any(kvp =>
+                    title.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase) &&
+                    DateTime.UtcNow < kvp.Value);
+            }).ToList();
 
-            if (validWindows.Count == 1)
+            // ADDITIONAL: Filter out games banned by EffectManager (shuffle-based bans)
+            var effectManagerBannedProcessNames = _effectManager?.GetBannedGameTitles() ?? new List<string>();
+            Debug.WriteLine($"SwitchToNextWindow: EffectManager banned process names: [{string.Join(", ", effectManagerBannedProcessNames)}]");
+
+            if (effectManagerBannedProcessNames.Count > 0)
             {
-                Debug.WriteLine("Only one valid window - stopping shuffle");
-                var lastWindow = validWindows[0];
-                NativeMethods.GetWindowThreadProcessId(lastWindow, out var pid);
-                if (pid != 0)
+                // CRITICAL FIX: Use validWindows instead of filteredWindows since time-based filtering might have emptied it
+                // Get process names for all valid windows (not just the filtered ones)
+                var windowProcessNames = new Dictionary<IntPtr, string>();
+                var availableProcessNames = GetTargetGameNames();
+                Debug.WriteLine($"SwitchToNextWindow: Available shuffler process names: [{string.Join(", ", availableProcessNames)}]");
+                Debug.WriteLine($"SwitchToNextWindow: Starting with {validWindows.Count} valid windows before process filtering");
+
+                foreach (var window in validWindows) // Use validWindows, not filteredWindows
                 {
-                    var mode = GetSuspensionMode(lastWindow);
-                    switch (mode)
+                    try
                     {
-                        case SuspensionMode.Unity:
-                        case SuspensionMode.Normal:
-                            ResumeProcessWithThreads((int)pid);
-                            break;
-                        case SuspensionMode.PriorityOnly:
-                            ResumeProcessPriorityOnly((int)pid);
-                            break;
+                        NativeMethods.GetWindowThreadProcessId(window, out var pid);
+                        if (pid != 0)
+                        {
+                            using var process = Process.GetProcessById((int)pid);
+                            var actualProcessName = process.ProcessName;
+                            Debug.WriteLine($"SwitchToNextWindow: Window {window} has actual process name '{actualProcessName}' (PID: {pid})");
+
+                            // Match against the shuffler's process names (these might be different from actual process names)
+                            var shufflerProcessName = availableProcessNames.FirstOrDefault(name =>
+                                name.Contains(actualProcessName, StringComparison.OrdinalIgnoreCase) ||
+                                actualProcessName.Contains(name, StringComparison.OrdinalIgnoreCase));
+
+                            if (!string.IsNullOrEmpty(shufflerProcessName))
+                            {
+                                windowProcessNames[window] = shufflerProcessName;
+                                Debug.WriteLine($"SwitchToNextWindow: Window {window} mapped to shuffler process '{shufflerProcessName}' (actual: '{actualProcessName}', PID: {pid})");
+                            }
+                            else
+                            {
+                                Debug.WriteLine($"SwitchToNextWindow: Window {window} - no matching shuffler process found for actual process '{actualProcessName}'");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"SwitchToNextWindow: Error getting process name for window {window}: {ex.Message}");
+                    }
+                }
+
+                // CRITICAL FIX: Filter from validWindows list instead of the already-filtered list
+                var bannedWindows = new List<IntPtr>();
+                var keptWindows = new List<IntPtr>();
+
+                var processFilteredWindows = validWindows.Where(window =>
+                {
+                    if (windowProcessNames.TryGetValue(window, out var processName))
+                    {
+                        var isBanned = effectManagerBannedProcessNames.Any(bannedProcess =>
+                            processName.Equals(bannedProcess, StringComparison.OrdinalIgnoreCase));
+
+                        if (isBanned)
+                        {
+                            bannedWindows.Add(window);
+                            Debug.WriteLine($"SwitchToNextWindow: ? FILTERING OUT Window {window} (Process: '{processName}') - BANNED");
+                            return false; // Filter out banned windows
+                        }
+                        else
+                        {
+                            keptWindows.Add(window);
+                            Debug.WriteLine($"SwitchToNextWindow: ? KEEPING Window {window} (Process: '{processName}') - NOT BANNED");
+                            return true; // Keep non-banned windows
+                        }
                     }
 
-                    // CRITICAL FIX: Restore window style before showing
-                    if (_originalWindowStyles.TryGetValue(lastWindow, out var originalStyle))
+                    // If we can't determine the process name, keep it in the list (don't filter it out)
+                    keptWindows.Add(window);
+                    Debug.WriteLine($"SwitchToNextWindow: ? KEEPING Window {window} - Could not determine process name");
+                    return true;
+                }).ToList();
+
+                Debug.WriteLine($"SwitchToNextWindow: Process-based filtering results:");
+                Debug.WriteLine($"  - Original windows: {validWindows.Count}");
+                Debug.WriteLine($"  - Banned windows filtered out: {bannedWindows.Count} [{string.Join(", ", bannedWindows)}]");
+                Debug.WriteLine($"  - Windows kept: {keptWindows.Count} [{string.Join(", ", keptWindows)}]");
+                Debug.WriteLine($"  - Final process-filtered windows: {processFilteredWindows.Count}");
+
+                // CRITICAL FIX: Update filteredWindows to use the process-filtered results
+                filteredWindows = processFilteredWindows;
+            }
+
+            if (filteredWindows.Count > 0)
+            {
+                validWindows = filteredWindows;
+                Debug.WriteLine($"After all filtering (time-based + effect-based): {validWindows.Count} windows available");
+            }
+            else
+            {
+                // CRITICAL FIX: When all games are banned/blacklisted, we must still respect the bans
+                // Don't fall back to original list - instead wait or stop shuffling
+                Debug.WriteLine("All games are blacklisted or banned");
+
+                // Check if there are ANY non-banned games available
+                var bannedProcessNames = _effectManager?.GetBannedGameTitles() ?? new List<string>();
+                var availableProcessNames = GetTargetGameNames();
+                var nonBannedProcesses = availableProcessNames.Where(processName =>
+                    !bannedProcessNames.Any(bannedProcess =>
+                        processName.Equals(bannedProcess, StringComparison.OrdinalIgnoreCase))).ToList();
+
+                Debug.WriteLine($"Available non-banned processes: {nonBannedProcesses.Count} [{string.Join(", ", nonBannedProcesses)}]");
+
+                if (nonBannedProcesses.Count > 0)
+                {
+                    // There are non-banned games but they might be temporarily blacklisted
+                    // Find windows for the non-banned processes
+                    var nonBannedWindows = new List<IntPtr>();
+                    foreach (var window in validWindows)
                     {
                         try
                         {
-                            var currentStyle = NativeMethods.GetWindowLong(lastWindow, NativeMethods.GWL_STYLE);
-                            if (currentStyle != originalStyle)
+                            NativeMethods.GetWindowThreadProcessId(window, out var pid);
+                            if (pid != 0)
                             {
-                                NativeMethods.SetWindowLong(lastWindow, NativeMethods.GWL_STYLE, originalStyle);
-                                NativeMethods.SetWindowPos(lastWindow, IntPtr.Zero, 0, 0, 0, 0,
-                                    NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOMOVE |
-                                    NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER |
-                                    NativeMethods.SWP_NOACTIVATE);
+                                using var process = Process.GetProcessById((int)pid);
+                                var actualProcessName = process.ProcessName;
+                                var matchedProcess = nonBannedProcesses.FirstOrDefault(name =>
+                                    name.Contains(actualProcessName, StringComparison.OrdinalIgnoreCase) ||
+                                    actualProcessName.Contains(name, StringComparison.OrdinalIgnoreCase));
+
+                                if (!string.IsNullOrEmpty(matchedProcess))
+                                {
+                                    nonBannedWindows.Add(window);
+                                    Debug.WriteLine($"Found non-banned window {window} for process '{matchedProcess}'");
+                                }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Error checking window {window}: {ex.Message}");
+                        }
                     }
 
-                    NativeMethods.ShowWindow(lastWindow, ShowWindowCommands.Restore);
-                    NativeMethods.SetForegroundWindow(lastWindow);
+                    if (nonBannedWindows.Count > 0)
+                    {
+                        Debug.WriteLine($"Using {nonBannedWindows.Count} non-banned windows, ignoring temporary blacklists");
+                        validWindows = nonBannedWindows;
+                    }
+                    else
+                    {
+                        Debug.WriteLine("No windows found for non-banned processes - scheduling next switch");
+                        ScheduleNextSwitch();
+                        _isSwitching = false;
+                        return;
+                    }
                 }
-                StopShuffle();
-                return;
+                else
+                {
+                    Debug.WriteLine("ALL processes are banned by EffectManager - scheduling next switch to let ban countdown continue");
+                    // Don't stop the shuffler - just wait for the next switch when bans might have expired
+                    ScheduleNextSwitch();
+                    _isSwitching = false;
+                    return;
+                }
             }
-
-            _targetWindows.Clear();
-            _targetWindows.AddRange(validWindows);
 
             if (_currentIndex >= validWindows.Count)
                 _currentIndex = -1;
@@ -1184,17 +1760,46 @@ public class MainForm : Form
             {
                 _suspendedProcesses.TryRemove((int)targetPid, out _);
 
-                var targetMode = GetSuspensionMode(target);
-                Debug.WriteLine($"Resuming target PID {targetPid} (mode: {targetMode})");
-                switch (targetMode)
+                // CRITICAL FIX: Check if target process is banned before resuming
+                bool shouldResume = true;
+                try
                 {
-                    case SuspensionMode.Unity:
-                    case SuspensionMode.Normal:
-                        ResumeProcessWithThreads((int)targetPid);
-                        break;
-                    case SuspensionMode.PriorityOnly:
-                        ResumeProcessPriorityOnly((int)targetPid);
-                        break;
+                    using var targetProcess = Process.GetProcessById((int)targetPid);
+                    var targetProcessName = targetProcess.ProcessName;
+                    var bannedProcessNames = _effectManager?.GetBannedGameTitles() ?? new List<string>();
+
+                    var isTargetBanned = bannedProcessNames.Any(bannedProcess =>
+                        targetProcessName.Equals(bannedProcess, StringComparison.OrdinalIgnoreCase));
+
+                    if (isTargetBanned)
+                    {
+                        shouldResume = false;
+                        Debug.WriteLine($"Target PID {targetPid} ({targetProcessName}) is banned - skipping resume to keep it suspended");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error checking if target PID {targetPid} is banned: {ex.Message}");
+                }
+
+                if (shouldResume)
+                {
+                    var targetMode = GetSuspensionMode(target);
+                    Debug.WriteLine($"Resuming target PID {targetPid} (mode: {targetMode})");
+                    switch (targetMode)
+                    {
+                        case SuspensionMode.Unity:
+                        case SuspensionMode.Normal:
+                            ResumeProcessWithThreads((int)targetPid);
+                            break;
+                        case SuspensionMode.PriorityOnly:
+                            ResumeProcessPriorityOnly((int)targetPid);
+                            break;
+                    }
+                }
+                else
+                {
+                    Debug.WriteLine($"Target PID {targetPid} remains suspended due to Game Ban effect");
                 }
 
                 if (NativeMethods.IsIconic(target))
@@ -1229,6 +1834,18 @@ public class MainForm : Form
                 NativeMethods.SetForegroundWindow(target);
                 Debug.WriteLine("Window focused successfully");
 
+                // Notify effect manager that a shuffle occurred
+                try
+                {
+                    Debug.WriteLine("SwitchToNextWindow: About to call EffectManager.OnGameShuffle()");
+                    _effectManager?.OnGameShuffle();
+                    Debug.WriteLine("SwitchToNextWindow: Successfully called EffectManager.OnGameShuffle()");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"SwitchToNextWindow: Error notifying EffectManager of shuffle: {ex.Message}");
+                }
+
                 var otherWindows = validWindows.Where(h => h != target).ToList();
                 Debug.WriteLine($"Suspending {otherWindows.Count} other windows");
 
@@ -1237,6 +1854,8 @@ public class MainForm : Form
                     try
                     {
                         NativeMethods.GetWindowThreadProcessId(h, out var pid);
+
+                        // CRITICAL FIX: Skip suspending processes that are already suspended
                         if (pid == 0 || _suspendedProcesses.ContainsKey((int)pid)) continue;
 
                         var mode = GetSuspensionMode(h);
@@ -1294,21 +1913,6 @@ public class MainForm : Form
             _isSwitching = false;
             Debug.WriteLine("=== SWITCH TO NEXT WINDOW END ===");
         }
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            if (_isShuffling)
-            {
-                Debug.WriteLine("Application disposing - performing cleanup");
-                ResumeAllTargetProcesses();
-            }
-
-            _backgroundTimer?.Dispose();
-        }
-        base.Dispose(disposing);
     }
 }
 
