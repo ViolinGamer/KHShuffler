@@ -20,7 +20,6 @@ The source code is available on GitHub for verification.
 
 ## Package Contents
 - `KHShuffler.exe` - Main application (self-contained)
-- `COMPLETE_SUCCESS_DOCUMENTATION.md` - Full technical documentation
 - `README.md` - Quick start guide
 - `steam_appid1.5+2.5.txt` - Place this in your game installation folder for Kingdom Hearts HD 1.5 + 2.5 ReMIX and rename it to steam_appid.txt to open the games directly through their exe (this is required to bypass the launcher and have multiple games open at the same time)
 - `steam_appid2.8.txt` - Place this in your game installation folder for Kingdom Hearts HD 2.8 Final Chapter Prologue and rename it to steam_appid.txt to open the games directly through their exe (this is required to bypass the launcher and have multiple games at the same time)
@@ -77,4 +76,5 @@ The source code is available on GitHub for verification.
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64, 16GB RAM minimum recommended, 32-64GB RAM for 5+ games simultaneously
+
 
