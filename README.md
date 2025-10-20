@@ -19,9 +19,10 @@
 4. Games will be automatically color-coded by engine type:
    -  Blue = Melody of Memory (Unity-specific suspension)
    -  Red = KH1FM, KH Re:CoM, KH2FM, KHBBSFM, KHDDD (gentle priority-only suspension)
-   -  White = KH0.2, KH3, KH 358/2 Days (MelonMix), KH Re:coded (MelonMix), KH CoM (Bizhawk), KH Dark Road (Bluestacks) (standard thread suspension)
-5. If you're playing GBA Chain of Memories (through Bizhawk) or Dark Road (through Bluestacks), make sure to set the graphics renderer to OpenGL. If you're using DirectX, the game will crash.
+   -  White = KH0.2, KH3, KH 358/2 Days (MelonMix/Bizhawk), KH Re:coded (MelonMix/Bizhawk), KH CoM (Bizhawk), KH Dark Road (Bluestacks) (standard thread suspension)
+5. If you're playing any games through the Bizhawk or Bluestacks emulator, make sure to set the graphics renderer to OpenGL. If you're using DirectX, the game will crash during shuffling.
 6. If you're playing Melody of Memory, you will need to pause and unpause the game if you're in the middle of the song to resync the music with the gameplay. I'm hoping to fix this in the future, but no promises.
+7. You can type in the name of the game by adding the game to the shuffle list, then double clicking under the Game Name column. This will create a custom game names text file in the same folder as the KHShuffler exe, which you can use within OBS to automatically display the name of the current game being played. I highly recommend using text-overdrive.lua (https://gist.github.com/kkartaltepe/861b02882056b464bfc3e0b329f2f174) so that the text file updates every frame within OBS. 
 
 ### 3. Configure Settings
 - **Min/Max Seconds**: Set the switching interval range
@@ -39,9 +40,9 @@
 - KINGDOM HEARTS Chain of Memories (Bizhawk, using OpenGL)
 - KINGDOM HEARTS Re:Chain of Memories (Square Enix)
 - KINGDOM HEARTS II FINAL MIX (Square Enix)
-- KINGDOM HEARTS 358/2 DAYS (MelonMix)
+- KINGDOM HEARTS 358/2 DAYS (MelonMix/Bizhawk, using OpenGL)
 - KINGDOM HEARTS Birth by Sleep FINAL MIX (Square Enix)
-- KINGDOM HEARTS Re:coded (MelonMix)
+- KINGDOM HEARTS Re:coded (MelonMix/Bizhawk, using OpenGL)
 - KINGDOM HEARTS Dream Drop Distance (Square Enix)
 - KINGDOM HEARTS 0.2 Birth by Sleep (UE4)
 - KINGDOM HEARTS III (UE4)
@@ -57,18 +58,4 @@
 - Check that games are not running in exclusive fullscreen mode
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
-**Compatibility**: Windows 10/11 x64
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+**Compatibility**: Windows 10/11 x64, 16GB RAM minimum recommended, 32-64GB RAM for 5+ games simultaneously
