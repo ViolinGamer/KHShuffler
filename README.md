@@ -1,3 +1,21 @@
+ANTIVIRUS FALSE POSITIVE NOTICE
+===============================
+
+KHShuffler may be flagged as "Trojan:Script/Wacatac.C!ml" by Windows Defender 
+and other antivirus software. This is a FALSE POSITIVE.
+
+WHY THIS HAPPENS:
+- KHShuffler uses Windows APIs to pause/resume game processes
+- These same APIs are used by malware, triggering heuristic detection
+- The application is legitimate and safe
+
+TO FIX:
+1. Add KHShuffler.exe to your antivirus exclusions
+2. Windows Defender: Settings > Virus & threat protection > Exclusions
+3. Add the entire KHShuffler folder as an exclusion
+
+The source code is available on GitHub for verification.
+
 # KHShuffler - Release Package
 
 ## Package Contents
@@ -59,3 +77,4 @@
 - Sometimes you'll have to click into the game manually (this should only happen once per game)
 
 **Compatibility**: Windows 10/11 x64, 16GB RAM minimum recommended, 32-64GB RAM for 5+ games simultaneously
+
