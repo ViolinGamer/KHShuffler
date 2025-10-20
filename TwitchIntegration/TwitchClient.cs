@@ -22,17 +22,17 @@ public class TwitchClient : IDisposable
     private string _clientSecret;
     private readonly string _redirectUri;
     private readonly List<string> _scopes;
-    
+
     public string? AccessToken { get; set; } // Made settable for loading from settings
-    public string? RefreshToken { get; private set; }
+    public string? RefreshToken { get; set; } // Made settable for loading from settings
     public string? Username { get; set; } // Made settable for loading from settings
     public bool IsAuthenticated => !string.IsNullOrEmpty(AccessToken);
-    
+
     public event EventHandler<TwitchAuthEventArgs>? AuthenticationChanged;
-    
+
     // Default redirect URI for all KHShuffler installations
     private const string REDIRECT_URI = "http://localhost:3000/auth/callback";
-    
+
     public TwitchClient()
     {
         _httpClient = new HttpClient();
@@ -47,7 +47,7 @@ public class TwitchClient : IDisposable
             "user:read:email"              // Read user email for identification
         };
     }
-    
+
     /// <summary>
     /// Sets the Twitch app credentials (Client ID and Secret)
     /// </summary>
@@ -55,33 +55,33 @@ public class TwitchClient : IDisposable
     {
         _clientId = clientId?.Trim() ?? "";
         _clientSecret = clientSecret?.Trim() ?? "";
-        
+
         // Update HTTP client headers
         _httpClient.DefaultRequestHeaders.Remove("Client-ID");
         if (!string.IsNullOrEmpty(_clientId))
         {
             _httpClient.DefaultRequestHeaders.Add("Client-ID", _clientId);
         }
-        
+
         Debug.WriteLine($"TwitchClient: Credentials updated - ClientID length: {_clientId.Length}");
     }
-    
+
     /// <summary>
     /// Gets the current client ID (for display purposes)
     /// </summary>
     public string GetClientId() => _clientId;
-    
+
     /// <summary>
     /// Checks if the client is properly configured with valid credentials
     /// </summary>
     public bool IsClientConfigured()
     {
-        return !string.IsNullOrEmpty(_clientId) && 
+        return !string.IsNullOrEmpty(_clientId) &&
                !string.IsNullOrEmpty(_clientSecret) &&
                _clientId.Length > 10 && // Twitch Client IDs are typically 30+ characters
                _clientSecret.Length > 10; // Twitch Client Secrets are typically 30+ characters
     }
-    
+
     /// <summary>
     /// Initiates the OAuth flow by opening the browser to Twitch
     /// </summary>
@@ -98,10 +98,10 @@ public class TwitchClient : IDisposable
                                  "2. Enter your Client ID and Client Secret in the settings below\n\n" +
                                  "This keeps your credentials private and secure!\n\n" +
                                  "Would you like to open the Twitch Developer Console now?";
-                
-                var result = MessageBox.Show(setupMessage, "Twitch App Setup Required", 
+
+                var result = MessageBox.Show(setupMessage, "Twitch App Setup Required",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-                
+
                 if (result == DialogResult.Yes)
                 {
                     try
@@ -119,60 +119,60 @@ public class TwitchClient : IDisposable
                         MessageBox.Show("Please visit: https://dev.twitch.tv/console", "Twitch Developer Console");
                     }
                 }
-                
+
                 AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
                 {
                     IsAuthenticated = false,
                     Username = "",
                     Message = "Credentials not configured - please enter your Twitch app details"
                 });
-                
+
                 return false;
             }
-            
+
             // Generate state parameter for security
             var state = Guid.NewGuid().ToString("N");
-            
+
             // Build authorization URL
             var authUrl = BuildAuthorizationUrl(state);
-            
+
             Debug.WriteLine($"TwitchClient: Opening browser for authentication: {authUrl}");
-            
+
             // Open browser to Twitch OAuth page
             Process.Start(new ProcessStartInfo
             {
                 FileName = authUrl,
                 UseShellExecute = true
             });
-            
+
             // Start local server to listen for callback
             var authResult = await ListenForCallbackAsync(state);
-            
+
             if (authResult.Success && !string.IsNullOrEmpty(authResult.AuthCode))
             {
                 // Exchange authorization code for access token
                 var tokenResult = await ExchangeCodeForTokenAsync(authResult.AuthCode);
-                
+
                 if (tokenResult.Success)
                 {
                     AccessToken = tokenResult.AccessToken;
                     RefreshToken = tokenResult.RefreshToken;
-                    
+
                     // Get user info
                     var userInfo = await GetUserInfoAsync();
                     if (userInfo != null)
                     {
                         Username = userInfo.DisplayName;
-                        
+
                         Debug.WriteLine($"TwitchClient: Successfully authenticated as {Username}");
-                        
+
                         AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
                         {
                             IsAuthenticated = true,
                             Username = Username,
                             Message = "Successfully connected to Twitch!"
                         });
-                        
+
                         return true;
                     }
                 }
@@ -181,59 +181,59 @@ public class TwitchClient : IDisposable
                     // Show specific error for token exchange failure
                     var errorMessage = "Failed to exchange authorization code for access token.\n\n" +
                                      "This usually means:\n" +
-                                     "• Invalid Client Secret\n" +
-                                     "• Incorrect redirect URI in Twitch app settings\n" +
-                                     "• Authorization code expired\n\n" +
+                                     "ï¿½ Invalid Client Secret\n" +
+                                     "ï¿½ Incorrect redirect URI in Twitch app settings\n" +
+                                     "ï¿½ Authorization code expired\n\n" +
                                      $"Error: {tokenResult.Error}";
-                    
-                    MessageBox.Show(errorMessage, "Token Exchange Failed", 
+
+                    MessageBox.Show(errorMessage, "Token Exchange Failed",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             else
             {
-                var errorMessage = !string.IsNullOrEmpty(authResult.Error) 
-                    ? $"Authorization failed: {authResult.Error}" 
+                var errorMessage = !string.IsNullOrEmpty(authResult.Error)
+                    ? $"Authorization failed: {authResult.Error}"
                     : "Authorization was cancelled or failed";
-                
-                MessageBox.Show(errorMessage, "Authorization Failed", 
+
+                MessageBox.Show(errorMessage, "Authorization Failed",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
-            
+
             AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
             {
                 IsAuthenticated = false,
                 Username = "",
                 Message = "Failed to authenticate with Twitch"
             });
-            
+
             return false;
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"TwitchClient: Authentication error: {ex.Message}");
-            
+
             var errorMessage = "Authentication error occurred:\n\n" +
                              $"{ex.Message}\n\n" +
                              "Please check:\n" +
-                             "• Your internet connection\n" +
-                             "• Twitch app configuration\n" +
-                             "• Client ID and Secret are correct";
-            
-            MessageBox.Show(errorMessage, "Authentication Error", 
+                             "ï¿½ Your internet connection\n" +
+                             "ï¿½ Twitch app configuration\n" +
+                             "ï¿½ Client ID and Secret are correct";
+
+            MessageBox.Show(errorMessage, "Authentication Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
-            
+
             AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
             {
                 IsAuthenticated = false,
                 Username = "",
                 Message = $"Authentication error: {ex.Message}"
             });
-            
+
             return false;
         }
     }
-    
+
     /// <summary>
     /// Disconnects from Twitch by revoking the token
     /// </summary>
@@ -246,18 +246,18 @@ public class TwitchClient : IDisposable
                 // Revoke the access token
                 await RevokeTokenAsync(AccessToken);
             }
-            
+
             AccessToken = null;
             RefreshToken = null;
             Username = null;
-            
+
             AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
             {
                 IsAuthenticated = false,
                 Username = "",
                 Message = "Disconnected from Twitch"
             });
-            
+
             return true;
         }
         catch (Exception ex)
@@ -266,21 +266,21 @@ public class TwitchClient : IDisposable
             return false;
         }
     }
-    
+
     /// <summary>
     /// Validates the current access token
     /// </summary>
     public async Task<bool> ValidateTokenAsync()
     {
         if (string.IsNullOrEmpty(AccessToken)) return false;
-        
+
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", AccessToken);
-            
+
             var response = await _httpClient.SendAsync(request);
-            
+
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
@@ -288,7 +288,7 @@ public class TwitchClient : IDisposable
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
                 });
-                
+
                 Debug.WriteLine($"TwitchClient: Token validation successful for {validation?.Login}");
                 return true;
             }
@@ -304,11 +304,84 @@ public class TwitchClient : IDisposable
             return false;
         }
     }
-    
+
+    /// <summary>
+    /// Refreshes the access token using the stored refresh token
+    /// </summary>
+    public async Task<bool> RefreshTokenAsync()
+    {
+        if (string.IsNullOrEmpty(RefreshToken))
+        {
+            Debug.WriteLine("TwitchClient: [TOKEN-REFRESH] No refresh token available");
+            return false;
+        }
+
+        try
+        {
+            Debug.WriteLine("TwitchClient: [TOKEN-REFRESH] Attempting to refresh access token...");
+
+            var tokenRequest = new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = RefreshToken,
+                ["client_id"] = _clientId,
+                ["client_secret"] = _clientSecret
+            };
+
+            var content = new FormUrlEncodedContent(tokenRequest);
+            var response = await _httpClient.PostAsync("https://id.twitch.tv/oauth2/token", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                Debug.WriteLine($"TwitchClient: [TOKEN-REFRESH] Success response: {responseContent}");
+
+                var tokenResponse = JsonSerializer.Deserialize<TwitchTokenResponse>(responseContent, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                });
+
+                if (tokenResponse != null && !string.IsNullOrEmpty(tokenResponse.AccessToken))
+                {
+                    AccessToken = tokenResponse.AccessToken;
+
+                    // Refresh token might be updated too
+                    if (!string.IsNullOrEmpty(tokenResponse.RefreshToken))
+                    {
+                        RefreshToken = tokenResponse.RefreshToken;
+                    }
+
+                    Debug.WriteLine("TwitchClient: [TOKEN-REFRESH] Successfully refreshed access token");
+
+                    AuthenticationChanged?.Invoke(this, new TwitchAuthEventArgs
+                    {
+                        IsAuthenticated = true,
+                        Username = Username ?? "",
+                        Message = "Token refreshed successfully"
+                    });
+
+                    return true;
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Debug.WriteLine($"TwitchClient: [TOKEN-REFRESH] Failed: {response.StatusCode} - {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"TwitchClient: [TOKEN-REFRESH] Exception: {ex.Message}");
+        }
+
+        Debug.WriteLine("TwitchClient: [TOKEN-REFRESH] Token refresh failed");
+        return false;
+    }
+
     private string BuildAuthorizationUrl(string state)
     {
         var scopesString = string.Join(" ", _scopes);
-        
+
         var parameters = new Dictionary<string, string>
         {
             ["client_id"] = _clientId,
@@ -317,18 +390,18 @@ public class TwitchClient : IDisposable
             ["scope"] = scopesString,
             ["state"] = state
         };
-        
-        var queryString = string.Join("&", 
+
+        var queryString = string.Join("&",
             parameters.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
-        
+
         return $"https://id.twitch.tv/oauth2/authorize?{queryString}";
     }
-    
+
     private async Task<CallbackResult> ListenForCallbackAsync(string expectedState)
     {
         // This is a simplified version - in production you'd want a proper HTTP server
         // For now, we'll show a dialog asking the user to paste the callback URL
-        
+
         var instructionDialog = new Form
         {
             Text = "Twitch Authentication",
@@ -338,7 +411,7 @@ public class TwitchClient : IDisposable
             MaximizeBox = false,
             MinimizeBox = false
         };
-        
+
         var instructionLabel = new Label
         {
             Text = "After authorizing with Twitch, you'll be redirected to a page that shows an error.\n\n" +
@@ -348,14 +421,14 @@ public class TwitchClient : IDisposable
             Location = new System.Drawing.Point(20, 20),
             TextAlign = System.Drawing.ContentAlignment.TopLeft
         };
-        
+
         var urlTextBox = new TextBox
         {
             Size = new System.Drawing.Size(460, 25),
             Location = new System.Drawing.Point(20, 90),
             PlaceholderText = "Paste the callback URL here..."
         };
-        
+
         var okButton = new Button
         {
             Text = "OK",
@@ -363,7 +436,7 @@ public class TwitchClient : IDisposable
             Location = new System.Drawing.Point(320, 130),
             DialogResult = DialogResult.OK
         };
-        
+
         var cancelButton = new Button
         {
             Text = "Cancel",
@@ -371,23 +444,23 @@ public class TwitchClient : IDisposable
             Location = new System.Drawing.Point(405, 130),
             DialogResult = DialogResult.Cancel
         };
-        
+
         instructionDialog.Controls.AddRange(new Control[] { instructionLabel, urlTextBox, okButton, cancelButton });
         instructionDialog.AcceptButton = okButton;
         instructionDialog.CancelButton = cancelButton;
-        
+
         var result = instructionDialog.ShowDialog();
-        
+
         if (result == DialogResult.OK && !string.IsNullOrEmpty(urlTextBox.Text))
         {
             try
             {
                 var uri = new Uri(urlTextBox.Text);
                 var query = HttpUtility.ParseQueryString(uri.Query);
-                
+
                 var code = query["code"];
                 var state = query["state"];
-                
+
                 if (state == expectedState && !string.IsNullOrEmpty(code))
                 {
                     return new CallbackResult { Success = true, AuthCode = code };
@@ -402,10 +475,10 @@ public class TwitchClient : IDisposable
                 return new CallbackResult { Success = false, Error = $"Invalid URL format: {ex.Message}" };
             }
         }
-        
+
         return new CallbackResult { Success = false, Error = "Authentication cancelled" };
     }
-    
+
     private async Task<TokenResult> ExchangeCodeForTokenAsync(string authCode)
     {
         try
@@ -418,10 +491,10 @@ public class TwitchClient : IDisposable
                 ["grant_type"] = "authorization_code",
                 ["redirect_uri"] = _redirectUri
             };
-            
+
             var content = new FormUrlEncodedContent(tokenRequest);
             var response = await _httpClient.PostAsync("https://id.twitch.tv/oauth2/token", content);
-            
+
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
@@ -429,7 +502,7 @@ public class TwitchClient : IDisposable
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
                 });
-                
+
                 return new TokenResult
                 {
                     Success = true,
@@ -441,7 +514,7 @@ public class TwitchClient : IDisposable
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
                 Debug.WriteLine($"TwitchClient: Token exchange failed: {response.StatusCode} - {errorContent}");
-                
+
                 return new TokenResult
                 {
                     Success = false,
@@ -455,18 +528,18 @@ public class TwitchClient : IDisposable
             return new TokenResult { Success = false, Error = ex.Message };
         }
     }
-    
+
     private async Task<TwitchUser?> GetUserInfoAsync()
     {
         if (string.IsNullOrEmpty(AccessToken)) return null;
-        
+
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, "https://api.twitch.tv/helix/users");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", AccessToken);
-            
+
             var response = await _httpClient.SendAsync(request);
-            
+
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
@@ -474,10 +547,10 @@ public class TwitchClient : IDisposable
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
                 });
-                
+
                 return userResponse?.Data?.FirstOrDefault();
             }
-            
+
             return null;
         }
         catch (Exception ex)
@@ -486,7 +559,7 @@ public class TwitchClient : IDisposable
             return null;
         }
     }
-    
+
     private async Task RevokeTokenAsync(string token)
     {
         try
@@ -496,7 +569,7 @@ public class TwitchClient : IDisposable
                 ["client_id"] = _clientId,
                 ["token"] = token
             };
-            
+
             var content = new FormUrlEncodedContent(revokeRequest);
             await _httpClient.PostAsync("https://id.twitch.tv/oauth2/revoke", content);
         }
@@ -505,7 +578,7 @@ public class TwitchClient : IDisposable
             Debug.WriteLine($"TwitchClient: Token revocation error: {ex.Message}");
         }
     }
-    
+
     public void Dispose()
     {
         _httpClient?.Dispose();

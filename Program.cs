@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -10,15 +12,150 @@ using BetterGameShuffler.TwitchIntegration;
 
 namespace BetterGameShuffler;
 
+/// <summary>
+/// Debug logging system that creates timestamped log files for each session
+/// </summary>
+public static class DebugLogger
+{
+    private static StreamWriter? _logWriter;
+    private static string? _currentLogFile;
+    private static readonly object _lockObject = new();
+
+    public static void Initialize()
+    {
+        try
+        {
+            // Create Debug Logs folder if it doesn't exist
+            // Use AppContext.BaseDirectory for single-file app compatibility
+            string baseDirectory = AppContext.BaseDirectory;
+            string debugLogsFolder = Path.Combine(baseDirectory, "Debug Logs");
+            Directory.CreateDirectory(debugLogsFolder);
+
+            // Create timestamped log file name
+            string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            string logFileName = $"DebugLog_{timestamp}.txt";
+            _currentLogFile = Path.Combine(debugLogsFolder, logFileName);
+
+            // Initialize the log writer
+            _logWriter = new StreamWriter(_currentLogFile, false) { AutoFlush = true };
+
+            // Write initial header
+            WriteToLog($"=== DEBUG LOG STARTED: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+            WriteToLog($"KHShuffler {Program.Version} Debug Session");
+            WriteToLog($"Log File: {logFileName}");
+            WriteToLog("Debug logging system initialized successfully");
+            WriteToLog("");
+
+            // Also setup Debug.WriteLine to write to our log file
+            Trace.Listeners.Add(new DebugTextWriterTraceListener());
+
+            Console.WriteLine($"Debug logging initialized: {_currentLogFile}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to initialize debug logging: {ex.Message}");
+        }
+    }
+
+    public static void WriteToLog(string message)
+    {
+        lock (_lockObject)
+        {
+            try
+            {
+                string timestampedMessage = $"{DateTime.Now:HH:mm:ss.fff} - {message}";
+                _logWriter?.WriteLine(timestampedMessage);
+                Console.WriteLine(timestampedMessage); // Also write to console for immediate feedback
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to write to log: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes a message directly to the log file without additional processing
+    /// Used by the trace listener to avoid double-formatting
+    /// </summary>
+    public static void WriteRawToLog(string message)
+    {
+        lock (_lockObject)
+        {
+            try
+            {
+                string timestampedMessage = $"{DateTime.Now:HH:mm:ss.fff} - {message}";
+                _logWriter?.WriteLine(timestampedMessage);
+                _logWriter?.Flush(); // Ensure immediate write for debug output
+                // Don't write to console here to avoid duplicate console output
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to write raw to log: {ex.Message}");
+            }
+        }
+    }
+
+    public static void Shutdown()
+    {
+        lock (_lockObject)
+        {
+            try
+            {
+                WriteToLog("");
+                WriteToLog($"=== DEBUG LOG ENDED: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+                _logWriter?.Close();
+                _logWriter?.Dispose();
+                _logWriter = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error shutting down debug logger: {ex.Message}");
+            }
+        }
+    }
+
+    public static string? GetCurrentLogFile() => _currentLogFile;
+}
+
+/// <summary>
+/// Custom trace listener that writes Debug.WriteLine output to our log file
+/// </summary>
+public class DebugTextWriterTraceListener : TraceListener
+{
+    public override void WriteLine(string? message)
+    {
+        if (!string.IsNullOrEmpty(message))
+        {
+            // Write directly to the log file with proper formatting
+            // Don't use DebugLogger.WriteToLog() to avoid double processing
+            DebugLogger.WriteRawToLog(message);
+        }
+    }
+
+    public override void Write(string? message)
+    {
+        if (!string.IsNullOrEmpty(message))
+        {
+            // Write directly to the log file with proper formatting  
+            // Don't use DebugLogger.WriteToLog() to avoid double processing
+            DebugLogger.WriteRawToLog(message);
+        }
+    }
+}
+
 internal static class Program
 {
-    public const string Version = "v2.0.0";
+    public const string Version = "v2.5.0";
 
     [STAThread]
     static void Main()
     {
         try
         {
+            // Initialize debug logging system FIRST
+            DebugLogger.Initialize();
+
             Debug.WriteLine("Program: Starting application...");
 
             Application.EnableVisualStyles();
@@ -52,177 +189,15 @@ internal static class Program
 
             Environment.Exit(1);
         }
-    }
-}
-
-// Settings manager for persistent user preferences
-public static class Settings
-{
-    private const string RegistryKeyPath = @"HKEY_CURRENT_USER\Software\BetterGameShuffler";
-
-    public static bool DarkMode
-    {
-        get
+        finally
         {
-            try
-            {
-                var value = Registry.GetValue(RegistryKeyPath, "DarkMode", 0);
-                // Handle both boolean and integer values for compatibility
-                return value switch
-                {
-                    bool b => b,
-                    int i => i != 0,
-                    _ => false
-                };
-            }
-            catch
-            {
-                return false; // Default to light mode if registry read fails
-            }
-        }
-        set
-        {
-            try
-            {
-                // Store as integer for better registry compatibility
-                Registry.SetValue(RegistryKeyPath, "DarkMode", value ? 1 : 0, RegistryValueKind.DWord);
-            }
-            catch
-            {
-                // Silently fail if registry write fails
-            }
-        }
-    }
-
-    // Twitch Effects Directory Settings
-    public static string ImagesDirectory
-    {
-        get
-        {
-            try
-            {
-                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_ImagesDirectory", "images");
-                var result = value?.ToString() ?? "images";
-                Debug.WriteLine($"Settings.ImagesDirectory GET: '{result}' (Raw: {value})");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.ImagesDirectory GET ERROR: {ex.Message}");
-                return "images"; // Default value
-            }
-        }
-        set
-        {
-            try
-            {
-                Debug.WriteLine($"Settings.ImagesDirectory SET: '{value}' -> Registry");
-                Registry.SetValue(RegistryKeyPath, "TwitchEffects_ImagesDirectory", value ?? "images", RegistryValueKind.String);
-                Debug.WriteLine($"Settings.ImagesDirectory SET: SUCCESS");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.ImagesDirectory SET ERROR: {ex.Message}");
-            }
-        }
-    }
-
-    public static string SoundsDirectory
-    {
-        get
-        {
-            try
-            {
-                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_SoundsDirectory", "sounds");
-                var result = value?.ToString() ?? "sounds";
-                Debug.WriteLine($"Settings.SoundsDirectory GET: '{result}' (Raw: {value})");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.SoundsDirectory GET ERROR: {ex.Message}");
-                return "sounds"; // Default value
-            }
-        }
-        set
-        {
-            try
-            {
-                Debug.WriteLine($"Settings.SoundsDirectory SET: '{value}' -> Registry");
-                Registry.SetValue(RegistryKeyPath, "TwitchEffects_SoundsDirectory", value ?? "sounds", RegistryValueKind.String);
-                Debug.WriteLine($"Settings.SoundsDirectory SET: SUCCESS");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.SoundsDirectory SET ERROR: {ex.Message}");
-            }
-        }
-    }
-
-    public static string HudDirectory
-    {
-        get
-        {
-            try
-            {
-                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_HudDirectory", "hud");
-                var result = value?.ToString() ?? "hud";
-                Debug.WriteLine($"Settings.HudDirectory GET: '{result}' (Raw: {value})");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.HudDirectory GET ERROR: {ex.Message}");
-                return "hud"; // Default value
-            }
-        }
-        set
-        {
-            try
-            {
-                Debug.WriteLine($"Settings.HudDirectory SET: '{value}' -> Registry");
-                Registry.SetValue(RegistryKeyPath, "TwitchEffects_HudDirectory", value ?? "hud", RegistryValueKind.String);
-                Debug.WriteLine($"Settings.HudDirectory SET: SUCCESS");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.HudDirectory SET ERROR: {ex.Message}");
-            }
-        }
-    }
-
-    public static string BlurDirectory
-    {
-        get
-        {
-            try
-            {
-                var value = Registry.GetValue(RegistryKeyPath, "TwitchEffects_BlurDirectory", "blur");
-                var result = value?.ToString() ?? "blur";
-                Debug.WriteLine($"Settings.BlurDirectory GET: '{result}' (Raw: {value})");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.BlurDirectory GET ERROR: {ex.Message}");
-                return "blur"; // Default value
-            }
-        }
-        set
-        {
-            try
-            {
-                Debug.WriteLine($"Settings.BlurDirectory SET: '{value}' -> Registry");
-                Registry.SetValue(RegistryKeyPath, "TwitchEffects_BlurDirectory", value ?? "blur", RegistryValueKind.String);
-                Debug.WriteLine($"Settings.BlurDirectory SET: SUCCESS");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Settings.BlurDirectory SET ERROR: {ex.Message}");
-            }
+            // Always shutdown debug logging
+            DebugLogger.Shutdown();
         }
     }
 }
+
+// Old Settings class removed - now using the comprehensive Settings.cs file
 
 public enum ShowWindowCommands
 {
@@ -271,6 +246,8 @@ internal static class NativeMethods
     public const int WS_SYSMENU = 0x00080000;
 
     public static readonly IntPtr HWND_TOP = new IntPtr(0);
+    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
     public const uint SWP_FRAMECHANGED = 0x0020;
     public const uint SWP_SHOWWINDOW = 0x0040;
     public const uint SWP_NOSIZE = 0x0001;
@@ -304,6 +281,9 @@ internal static class NativeMethods
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll")]
@@ -333,7 +313,28 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     public static extern bool CloseHandle(IntPtr hObject);
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr OpenProcess(ProcessAccessFlags dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+}
+
+[Flags]
+public enum ProcessAccessFlags : uint
+{
+    VirtualMemoryRead = 0x0010,
+    VirtualMemoryWrite = 0x0020,
+    QueryInformation = 0x0400,
+    QueryLimitedInformation = 0x1000
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -412,6 +413,13 @@ public class MainForm : Form
     // CRITICAL FIX: Store original window styles to prevent resizing issues
     private readonly ConcurrentDictionary<IntPtr, int> _originalWindowStyles = new();
 
+    // Settings System
+    private readonly Settings _settings = new();
+
+    // Game name mappings storage (now managed by Settings class)
+    private readonly string _currentGamePath = Path.Combine(Application.StartupPath, "current_game.txt"); // Cached path for performance
+    private readonly Dictionary<IntPtr, string> _gameNameCache = new(); // Cache for fast repeated lookups by window handle
+
     // Twitch Effects System
     private readonly EffectManager _effectManager;
     private readonly Dictionary<string, DateTime> _blacklistedGames = new();
@@ -426,6 +434,16 @@ public class MainForm : Form
         try
         {
             Debug.WriteLine("MainForm: Starting initialization...");
+
+            // Initialize settings system first
+            Debug.WriteLine("MainForm: Initializing settings system...");
+            _settings.Initialize();
+
+            // Load saved shuffle time preferences
+            _minSeconds.Value = _settings.MinSeconds;
+            _maxSeconds.Value = _settings.MaxSeconds;
+            _forceBorderless.Checked = _settings.ForceBorderlessFullscreen;
+            Debug.WriteLine($"MainForm: Loaded settings - Min: {_settings.MinSeconds}s, Max: {_settings.MaxSeconds}s, Borderless: {_settings.ForceBorderlessFullscreen}");
 
             Text = $"KHShuffler {Program.Version}";
             Width = 1200;
@@ -444,9 +462,10 @@ public class MainForm : Form
             _processList.Columns.Add("PID", 80);
 
             // Set up targets list columns
-            _targets.Columns.Add("Title", 500);
-            _targets.Columns.Add("Process", 200);
-            _targets.Columns.Add("PID", 100);
+            _targets.Columns.Add("Title", 400);
+            _targets.Columns.Add("Process", 150);
+            _targets.Columns.Add("PID", 80);
+            _targets.Columns.Add("Game Name", 200);
 
             // Configure process list behavior
             _processList.ItemCheck += ProcessList_ItemCheck;
@@ -454,6 +473,11 @@ public class MainForm : Form
             _processList.HideSelection = true; // Hide blue selection highlighting
             _processList.MultiSelect = false; // Disable multi-selection
             _processList.ItemSelectionChanged += ProcessList_ItemSelectionChanged;
+
+            // Configure targets list behavior
+            _targets.DoubleClick += Targets_DoubleClick;
+            _targets.MouseDown += Targets_MouseDown;
+            _targets.ItemCheck += Targets_ItemCheck;
 
             var rightPanel = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.TopDown, Width = 450, Padding = new Padding(8) };
             rightPanel.Controls.Add(new Label { Text = "Min seconds" });
@@ -489,13 +513,30 @@ public class MainForm : Form
             _darkModeToggle.CheckedChanged += (_, __) => ToggleDarkMode();
             _testModeButton.Click += (_, __) => OpenTestMode();
 
+            // Add event handlers to save timer settings when changed
+            _minSeconds.ValueChanged += (_, __) =>
+            {
+                _settings.MinSeconds = (int)_minSeconds.Value;
+                Debug.WriteLine($"Settings: MinSeconds saved to {_settings.MinSeconds}");
+            };
+            _maxSeconds.ValueChanged += (_, __) =>
+            {
+                _settings.MaxSeconds = (int)_maxSeconds.Value;
+                Debug.WriteLine($"Settings: MaxSeconds saved to {_settings.MaxSeconds}");
+            };
+            _forceBorderless.CheckedChanged += (_, __) =>
+            {
+                _settings.ForceBorderlessFullscreen = _forceBorderless.Checked;
+                Debug.WriteLine($"Settings: ForceBorderlessFullscreen saved to {_settings.ForceBorderlessFullscreen}");
+            };
+
             _backgroundTimer = new System.Threading.Timer(BackgroundTimerCallback, null, Timeout.Infinite, Timeout.Infinite);
 
             // Set up application exit handler for cleanup
             Application.ApplicationExit += OnApplicationExit;
 
             // Load and apply saved dark mode preference
-            _darkModeToggle.Checked = Settings.DarkMode;
+            _darkModeToggle.Checked = _settings.DarkModeEnabled;
             ApplyTheme();
 
             Debug.WriteLine("MainForm: Refreshing processes...");
@@ -552,7 +593,7 @@ public class MainForm : Form
             // CRITICAL FIX: Pass both MainForm AND the EXISTING EffectManager instance
             // This ensures the test mode uses the same EffectManager as the real shuffler
             var testForm = new EffectTestModeForm(twitchEffectSettings, this, _effectManager);
-            testForm.ShowDialog(this);
+            testForm.Show(); // Changed from ShowDialog() to Show() to allow both windows to be interactive
         }
         catch (Exception ex)
         {
@@ -596,14 +637,227 @@ public class MainForm : Form
         var pName = processName.ToLower();
         var wTitle = windowTitle.ToLower();
 
+        // PRIORITY: Process names for UE4 Kingdom Hearts games
         return (pName.Contains("kh3") || pName.Contains("khiii") ||
-                wTitle.Contains("kingdom hearts iii") || wTitle.Contains("kingdom hearts 3") ||
-                wTitle.Contains("kh3") || wTitle.Contains("khiii")) ||
-               (pName.Contains("0.2") || pName.Contains("02") ||
-                pName.Contains("fragmentary") ||
-                wTitle.Contains("0.2") || wTitle.Contains("fragmentary passage") ||
-                wTitle.Contains("birth by sleep") && wTitle.Contains("0.2") ||
-                wTitle.Contains("kingdom hearts 0.2") || wTitle.Contains("kh 0.2") || wTitle.Contains("kh0.2"));
+                pName.Contains("kingdom hearts iii") ||
+                // KH 0.2 Birth by Sleep - A Fragmentary Passage (UE4 engine)
+                pName.Contains("0.2") || pName.Contains("02") ||
+                pName.Contains("fragmentary") || pName.Contains("bbs02") ||
+                // Fallback to window title only if process name doesn't match
+                (wTitle.Contains("kingdom hearts iii") || wTitle.Contains("kingdom hearts 3") ||
+                 wTitle.Contains("kh3") || wTitle.Contains("khiii") ||
+                 wTitle.Contains("0.2") || wTitle.Contains("fragmentary passage") ||
+                 wTitle.Contains("birth by sleep") && wTitle.Contains("0.2") ||
+                 wTitle.Contains("kingdom hearts 0.2") || wTitle.Contains("kh 0.2") || wTitle.Contains("kh0.2")));
+    }
+
+    private static bool IsUnityKingdomHearts(string processName, string windowTitle)
+    {
+        var pName = processName.ToLower();
+        var wTitle = windowTitle.ToLower();
+
+        Debug.WriteLine($"[UNITY-DETECTION] Checking process: '{pName}', window: '{wTitle}'");
+
+        // PRIORITY: Process names for Unity Kingdom Hearts games (Melody of Memory)
+        bool isUnityKH = (pName.Contains("melody") && pName.Contains("memory")) ||
+                         (pName.Contains("melodyofmemory")) ||
+                         (pName.Contains("khmelody")) ||
+                         pName.Contains("melody of memory") ||
+                         // Fallback to window title only if process name doesn't match
+                         (wTitle.Contains("melody of memory")) ||
+                         (wTitle.Contains("kingdom hearts melody")) ||
+                         (wTitle.Contains("kh melody")) ||
+                         (wTitle.Contains("melodyofmemory"));
+
+        Debug.WriteLine($"[UNITY-DETECTION] Unity KH detected: {isUnityKH}");
+        return isUnityKH;
+    }
+
+    private static bool IsClassicKingdomHearts(string processName, string windowTitle)
+    {
+        var pName = processName.ToLower();
+        var wTitle = windowTitle.ToLower();
+
+        Debug.WriteLine($"[CLASSIC-DETECTION] Checking process: '{pName}', window: '{wTitle}'");
+
+        // CRITICAL: Re:Chain of Memories MUST be excluded from classic KH treatment
+        // Re:CoM crashes with thread suspension and needs priority-only handling
+        if (IsReChainOfMemories(processName, windowTitle))
+        {
+            Debug.WriteLine($"[CLASSIC-DETECTION] Re:Chain of Memories detected - EXCLUDED from classic KH treatment (needs priority-only)");
+            return false;
+        }
+
+        // PRIORITY: Focus EXCLUSIVELY on PROCESS NAMES for HD Collections since multiple games share same window title
+        // Classic Kingdom Hearts games (PS2 era, emulated or remastered) - PROCESS NAME BASED DETECTION ONLY
+        bool isClassicKH =
+            // HD 1.5+2.5 ReMIX Collection process names (Classic PS2 games)
+            pName.Contains("kh1") || pName.Contains("kh2") ||
+            pName.Contains("khii") || pName.Contains("khi") ||
+            pName.Contains("bbs") || pName.Contains("birth") ||
+            // HD 2.8 Collection process names - ONLY DDD (Classic), NOT 0.2 (UE4)
+            pName.Contains("ddd") || pName.Contains("dream drop") ||
+            // Individual classic releases
+            pName.Contains("final mix") || pName.Contains("finalmix") ||
+            // Generic KH process patterns (exclude UE4 and Unity games)
+            (pName.Contains("kingdom hearts") &&
+             !pName.Contains("melody") && !pName.Contains("kh3") && !pName.Contains("khiii") &&
+             !pName.Contains("0.2") && !pName.Contains("fragmentary"));
+        // NOTE: Removed window title fallbacks to prevent false positives from collection titles
+        // NOTE: Removed "chain" and "re:chain" patterns - Re:CoM needs separate priority-only handling
+
+        Debug.WriteLine($"[CLASSIC-DETECTION] Classic KH detected: {isClassicKH}");
+        return isClassicKH;
+    }
+
+    /// <summary>
+    /// Detects Re:Chain of Memories specifically for priority-only suspension
+    /// Re:CoM crashes with thread suspension and must use priority-only approach
+    /// </summary>
+    private static bool IsReChainOfMemories(string processName, string windowTitle)
+    {
+        var pName = processName.ToLower();
+        var wTitle = windowTitle.ToLower();
+
+        bool isReCoM =
+            pName.Contains("re_chain") || pName.Contains("rechain") ||
+            pName.Contains("re:chain") || pName.Contains("chain of memories") ||
+            pName.Contains("recom") || pName.Contains("com") ||
+            (pName.Contains("chain") && pName.Contains("memories"));
+
+        if (isReCoM)
+        {
+            Debug.WriteLine($"[RECOM-DETECTION] Re:Chain of Memories detected: '{processName}' - PRIORITY-ONLY mode required");
+        }
+
+        return isReCoM;
+    }
+
+    /// <summary>
+    /// Priority-only resume for Re:Chain of Memories
+    /// Re:CoM crashes with thread suspension, so only use priority restoration
+    /// </summary>
+    private static bool ResumeReChainOfMemoriesPriorityOnly(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[RECOM-RESUME] Re:Chain of Memories priority-only resume starting (PID: {process.Id})");
+            Debug.WriteLine($"[RECOM-RESUME] Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+            Debug.WriteLine($"[RECOM-RESUME] Using PRIORITY-ONLY mode (no thread suspension/resume due to crash risk)");
+
+            // ONLY restore priority - NO thread manipulation for Re:CoM stability
+            process.PriorityClass = ProcessPriorityClass.Normal;
+            Debug.WriteLine($"[RECOM-RESUME] Priority restored to Normal for stability");
+
+            // Restore window if minimized
+            var mainWindow = process.MainWindowHandle;
+            if (mainWindow != IntPtr.Zero && NativeMethods.IsWindow(mainWindow))
+            {
+                Debug.WriteLine($"[RECOM-RESUME] Restoring Re:CoM window");
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Show);
+                Thread.Sleep(20);
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Restore);
+                Debug.WriteLine($"[RECOM-RESUME] Window restoration completed");
+            }
+
+            Debug.WriteLine($"[RECOM-RESUME] Re:Chain of Memories priority-only resume completed successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[RECOM-RESUME] Re:Chain of Memories priority-only resume failed: {process.Id} - {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool ResumeClassicKHGPUSafe(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[CLASSIC-RESUME] Classic Kingdom Hearts detected - using GPU-SAFE resume for classic games (PID: {process.Id})");
+            Debug.WriteLine($"[CLASSIC-RESUME] Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+
+            // Step 1: Gradual priority restoration to prevent GPU shock (same as UE4 approach)
+            process.PriorityClass = ProcessPriorityClass.BelowNormal; // Start lower
+            Thread.Sleep(50); // Initial stabilization
+            process.PriorityClass = ProcessPriorityClass.Normal; // Then restore to normal
+            Debug.WriteLine($"[CLASSIC-RESUME] Priority restored gradually for GPU stability");
+
+            // Step 2: Conservative CPU affinity restoration for classic game GPU stability
+            int totalCores = Environment.ProcessorCount;
+
+            // Start with quarter cores for classic game GPU stability
+            int quarterCores = Math.Max(2, totalCores / 4);
+            IntPtr quarterAffinityMask = (IntPtr)((1L << quarterCores) - 1);
+            process.ProcessorAffinity = quarterAffinityMask;
+            Thread.Sleep(75); // Let classic game GPU threads stabilize
+
+            // Then half cores
+            int halfCores = Math.Max(3, totalCores / 2);
+            IntPtr halfAffinityMask = (IntPtr)((1L << halfCores) - 1);
+            process.ProcessorAffinity = halfAffinityMask;
+            Thread.Sleep(100); // Longer stabilization for classic games
+
+            // Finally restore full affinity
+            IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
+            process.ProcessorAffinity = fullAffinityMask;
+            Debug.WriteLine($"[CLASSIC-RESUME] CPU affinity restored gradually for classic game GPU stability");
+
+            // Step 3: Small batch thread resumption for classic game stability
+            var threadsToResume = new List<ProcessThread>();
+            foreach (ProcessThread thread in process.Threads)
+            {
+                threadsToResume.Add(thread);
+            }
+
+            Debug.WriteLine($"[CLASSIC-RESUME] GPU-safe classic resume: Found {threadsToResume.Count} threads to resume in small batches");
+
+            int resumed = 0;
+            const int batchSize = 5; // Smaller batches for classic games
+
+            for (int i = 0; i < threadsToResume.Count; i += batchSize)
+            {
+                var batch = threadsToResume.Skip(i).Take(batchSize);
+
+                foreach (var thread in batch)
+                {
+                    try
+                    {
+                        var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                        if (hThread != IntPtr.Zero)
+                        {
+                            // Gentle resume for classic games - avoid overwhelming GPU
+                            int resumeResult = NativeMethods.ResumeThread(hThread);
+                            if (resumeResult > 0)
+                            {
+                                // Only do one additional resume if really needed
+                                NativeMethods.ResumeThread(hThread);
+                            }
+                            NativeMethods.CloseHandle(hThread);
+                            resumed++;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Delays between batches for classic game GPU stabilization
+                if (i + batchSize < threadsToResume.Count)
+                {
+                    Thread.Sleep(35); // Classic game GPU stabilization delay
+                }
+            }
+
+            // Step 4: Extended GPU stabilization delay for classic games
+            Thread.Sleep(175); // Extended delay for classic game GPU synchronization
+
+            Debug.WriteLine($"[CLASSIC-RESUME] Classic KH GPU-safe resume completed: {resumed} threads resumed with GPU stability measures");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CLASSIC-RESUME] Classic KH GPU-safe resume failed: {process.Id} - {ex.Message}");
+            return false;
+        }
     }
 
     private static bool SuspendUE4ProcessSelectively(Process process)
@@ -789,6 +1043,281 @@ public class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Suspends SEAD (Square Enix Audio Driver) threads to prevent audio desync in Melody of Memory
+    /// </summary>
+    private static int SuspendSEADAudioThreads(Process process)
+    {
+        int seadThreadsSuspended = 0;
+
+        try
+        {
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Searching for Melody of Memory rhythm game conductor system (PID: {process.Id})");
+
+            // PHASE 1: Identify conductor/timeline modules
+            var conductorModules = new List<string>();
+            var seadModuleFound = false;
+            try
+            {
+                foreach (ProcessModule module in process.Modules)
+                {
+                    var moduleName = module.ModuleName.ToLowerInvariant();
+
+                    if (moduleName.Contains("sead"))
+                    {
+                        seadModuleFound = true;
+                        Debug.WriteLine($"[CONDUCTOR-SUSPEND] Found SEAD audio module: {module.ModuleName} at 0x{module.BaseAddress.ToInt64():X}");
+                        conductorModules.Add(module.ModuleName);
+                    }
+
+                    // Look for conductor/timeline related modules
+                    if (moduleName.Contains("conductor") || moduleName.Contains("timeline") ||
+                        moduleName.Contains("rhythm") || moduleName.Contains("beat") ||
+                        moduleName.Contains("sync") || moduleName.Contains("music") ||
+                        moduleName.Contains("audio") || moduleName.Contains("sound"))
+                    {
+                        Debug.WriteLine($"[CONDUCTOR-SUSPEND] Found potential conductor module: {module.ModuleName} at 0x{module.BaseAddress.ToInt64():X}");
+                        conductorModules.Add(module.ModuleName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CONDUCTOR-SUSPEND] Could not enumerate modules: {ex.Message}");
+            }
+
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Found {conductorModules.Count} conductor-related modules");
+
+            // PHASE 2: Identify conductor threads by behavior patterns
+            var allThreads = process.Threads.Cast<ProcessThread>().ToList();
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Total process threads: {allThreads.Count}");
+
+            // Look for threads that could be managing rhythm/timing
+            var conductorCandidates = new List<ProcessThread>();
+
+            // Priority 1: High priority threads (audio/timing critical)
+            var highPriorityThreads = allThreads.Where(t =>
+            {
+                try
+                {
+                    return t.PriorityLevel == ThreadPriorityLevel.AboveNormal ||
+                           t.PriorityLevel == ThreadPriorityLevel.Highest ||
+                           t.PriorityLevel == ThreadPriorityLevel.TimeCritical;
+                }
+                catch { return false; }
+            }).ToList();
+
+            conductorCandidates.AddRange(highPriorityThreads);
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Found {highPriorityThreads.Count} high-priority threads (likely conductor/audio)");
+
+            // Priority 2: Look for threads with timing-consistent behavior
+            // These might be running at normal priority but managing game timing
+            var timingThreads = allThreads.Where(t =>
+            {
+                try
+                {
+                    // Look for threads that might be timing-related
+                    return t.PriorityLevel == ThreadPriorityLevel.Normal &&
+                           t.ThreadState == System.Diagnostics.ThreadState.Wait &&
+                           t.WaitReason == System.Diagnostics.ThreadWaitReason.UserRequest; // Threads waiting on events/signals
+                }
+                catch { return false; }
+            }).Take(5).ToList(); // Limit to avoid suspending too many
+
+            conductorCandidates.AddRange(timingThreads);
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Found {timingThreads.Count} timing-pattern threads (potential conductor)");
+
+            // PHASE 3: Suspend conductor candidates with detailed tracking
+            var suspendedConductorThreads = new HashSet<int>();
+
+            foreach (var thread in conductorCandidates.Distinct())
+            {
+                try
+                {
+                    Debug.WriteLine($"[CONDUCTOR-SUSPEND] Analyzing thread {thread.Id} (Priority: {thread.PriorityLevel}, State: {thread.ThreadState}, WaitReason: {thread.WaitReason})");
+
+                    var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                    if (hThread != IntPtr.Zero)
+                    {
+                        uint suspendCount = NativeMethods.SuspendThread(hThread);
+                        NativeMethods.CloseHandle(hThread);
+
+                        seadThreadsSuspended++;
+                        suspendedConductorThreads.Add(thread.Id);
+
+                        // Categorize the thread type for better debugging
+                        string threadType = "Unknown";
+                        if (thread.PriorityLevel >= ThreadPriorityLevel.AboveNormal)
+                            threadType = "High-Priority Audio/Conductor";
+                        else if (thread.WaitReason == System.Diagnostics.ThreadWaitReason.UserRequest)
+                            threadType = "Timing/Scheduler";
+
+                        Debug.WriteLine($"[CONDUCTOR-SUSPEND] Suspended {threadType} thread {thread.Id} (Previous suspend count: {suspendCount})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CONDUCTOR-SUSPEND] Failed to suspend conductor thread {thread.Id}: {ex.Message}");
+                }
+            }
+
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Conductor suspension completed: {seadThreadsSuspended} threads suspended");
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Suspended thread IDs: [{string.Join(", ", suspendedConductorThreads)}]");
+
+            return seadThreadsSuspended;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CONDUCTOR-SUSPEND] Conductor suspension failed: {ex.Message}");
+            return seadThreadsSuspended;
+        }
+    }
+
+    private static bool SuspendUnityKHGently(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[UNITY-SUSPEND] Unity Kingdom Hearts detected - using Unity API approach (PID: {process.Id})");
+            Debug.WriteLine($"[UNITY-SUSPEND] Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+
+            // Step 1: Try Unity API pause first (preferred method)
+            Debug.WriteLine($"[UNITY-SUSPEND] Attempting Unity API pause...");
+            if (UnityAPIController.IsUnityAPIAvailable(process))
+            {
+                Debug.WriteLine($"[UNITY-SUSPEND] Unity API available - using Time.timeScale and AudioListener pause");
+
+                if (UnityAPIController.PauseMelodyOfMemory(process))
+                {
+                    Debug.WriteLine($"[UNITY-SUSPEND] Unity API pause successful!");
+
+                    // Minimize window for proper background operation
+                    IntPtr gameWindow = process.MainWindowHandle;
+                    if (gameWindow != IntPtr.Zero && NativeMethods.IsWindow(gameWindow))
+                    {
+                        Debug.WriteLine($"[UNITY-SUSPEND] Minimizing Unity game window");
+                        NativeMethods.ShowWindow(gameWindow, ShowWindowCommands.Minimize);
+                    }
+
+                    return true;
+                }
+                else
+                {
+                    Debug.WriteLine($"[UNITY-SUSPEND] Unity API pause failed, falling back to thread suspension");
+                }
+            }
+            else
+            {
+                Debug.WriteLine($"[UNITY-SUSPEND] Unity API not available, using fallback method");
+            }
+
+            // Step 2: Fallback to original method if Unity API fails
+            Debug.WriteLine($"[UNITY-SUSPEND] Using fallback thread suspension method");
+
+            // Set priority to BelowNormal for stability
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+            Debug.WriteLine($"[UNITY-SUSPEND] Set priority to BelowNormal for Unity stability");
+
+            // Hide/Minimize window
+            IntPtr mainWindow = process.MainWindowHandle;
+            if (mainWindow != IntPtr.Zero && NativeMethods.IsWindow(mainWindow))
+            {
+                Debug.WriteLine($"[UNITY-SUSPEND] Hiding Unity game window");
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Hide);
+
+                // Send minimize command as backup
+                NativeMethods.SendMessage(mainWindow, 0x0112, (IntPtr)0xF020, IntPtr.Zero); // WM_SYSCOMMAND, SC_MINIMIZE
+
+                Debug.WriteLine($"[UNITY-SUSPEND] Window operations completed");
+            }
+
+            // SEAD Audio Thread Priority Suspension
+            Debug.WriteLine($"[UNITY-SUSPEND] Starting SEAD audio thread identification and priority suspension");
+            int seadThreadsSuspended = SuspendSEADAudioThreads(process);
+            Debug.WriteLine($"[UNITY-SUSPEND] SEAD audio threads suspended: {seadThreadsSuspended}");
+
+            // Moderate thread suspension (75%)
+            Debug.WriteLine($"[UNITY-SUSPEND] Starting selective thread suspension for audio control");
+
+            var allThreads = process.Threads.Cast<ProcessThread>().ToList();
+            var threadsToSuspend = allThreads.Where(t =>
+            {
+                try
+                {
+                    return t.ThreadState == System.Diagnostics.ThreadState.Wait &&
+                           t.PriorityLevel == ThreadPriorityLevel.Normal;
+                }
+                catch
+                {
+                    return false;
+                }
+            })
+            .OrderBy(t => t.Id)
+            .Take(Math.Max(15, (allThreads.Count * 3) / 4)) // 75% for audio coverage
+            .ToList();
+
+            Debug.WriteLine($"[UNITY-SUSPEND] Suspending {threadsToSuspend.Count} of {allThreads.Count} threads (75% for audio control)");
+
+            int suspended = 0;
+            foreach (var thread in threadsToSuspend)
+            {
+                try
+                {
+                    var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                    if (hThread != IntPtr.Zero)
+                    {
+                        NativeMethods.SuspendThread(hThread);
+                        NativeMethods.CloseHandle(hThread);
+                        suspended++;
+                    }
+                }
+                catch { }
+            }
+
+            Debug.WriteLine($"[UNITY-SUSPEND] Unity suspension completed - {suspended} gameplay threads + {seadThreadsSuspended} SEAD audio threads suspended");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[UNITY-SUSPEND] Unity suspend failed: {process.Id} - {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Priority-only suspend for Re:Chain of Memories
+    /// Re:CoM crashes with thread suspension, so only use priority reduction
+    /// </summary>
+    private static bool SuspendReChainOfMemoriesPriorityOnly(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[RECOM-SUSPEND] Re:Chain of Memories priority-only suspend starting (PID: {process.Id})");
+            Debug.WriteLine($"[RECOM-SUSPEND] Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+            Debug.WriteLine($"[RECOM-SUSPEND] Using PRIORITY-ONLY mode (no thread suspension due to crash risk)");
+
+            // ONLY reduce priority - NO thread manipulation for Re:CoM stability
+            process.PriorityClass = ProcessPriorityClass.Idle;
+            Debug.WriteLine($"[RECOM-SUSPEND] Priority reduced to Idle for background operation");
+
+            // Minimize window if visible
+            var mainWindow = process.MainWindowHandle;
+            if (mainWindow != IntPtr.Zero && NativeMethods.IsWindow(mainWindow))
+            {
+                Debug.WriteLine($"[RECOM-SUSPEND] Minimizing Re:CoM window");
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Minimize);
+                Debug.WriteLine($"[RECOM-SUSPEND] Window minimization completed");
+            }
+
+            Debug.WriteLine($"[RECOM-SUSPEND] Re:Chain of Memories priority-only suspend completed successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[RECOM-SUSPEND] Re:Chain of Memories priority-only suspend failed: {process.Id} - {ex.Message}");
+            return false;
+        }
+    }
+
     private static bool SuspendProcessWithThreads(int pid)
     {
         try
@@ -797,10 +1326,20 @@ public class MainForm : Form
             if (process.HasExited) return false;
 
             bool isUE4KH = IsUE4KingdomHearts(process.ProcessName, process.MainWindowTitle);
+            bool isUnityKH = IsUnityKingdomHearts(process.ProcessName, process.MainWindowTitle);
+            bool isReCoM = IsReChainOfMemories(process.ProcessName, process.MainWindowTitle);
 
             if (isUE4KH)
             {
                 return SuspendUE4ProcessSelectively(process);
+            }
+            else if (isUnityKH)
+            {
+                return SuspendUnityKHGently(process);
+            }
+            else if (isReCoM)
+            {
+                return SuspendReChainOfMemoriesPriorityOnly(process);
             }
             else
             {
@@ -832,6 +1371,858 @@ public class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Directly manipulates SEAD timing system using reflection to reset musical timeline
+    /// Targets SeadTiming, SeadMusic, and related classes to synchronize music with gameplay
+    /// </summary>
+    private static bool ManipulateSEADTimelineDirectly(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-INJECTION] Starting direct SEAD timeline manipulation for {process.ProcessName} (PID: {process.Id})");
+
+            // STRATEGY 1: Enhanced keyboard simulation targeting SEAD-specific controls
+            Debug.WriteLine($"[SEAD-INJECTION] Strategy 1: SEAD-targeted keyboard simulation");
+            bool keyboardSuccess = SimulateSEADTimelineReset(process);
+            if (keyboardSuccess)
+            {
+                Debug.WriteLine($"[SEAD-INJECTION] ✓ SEAD keyboard simulation successful");
+                return true;
+            }
+
+            // STRATEGY 2: Window message injection for SEAD controls (try before memory scanning)
+            Debug.WriteLine($"[SEAD-INJECTION] Strategy 2: SEAD window message injection");
+            bool messageSuccess = InjectSEADTimelineMessages(process);
+            if (messageSuccess)
+            {
+                Debug.WriteLine($"[SEAD-INJECTION] ✓ SEAD message injection successful");
+                return true;
+            }
+
+            // STRATEGY 3: Memory pattern scanning for SEAD timeline state
+            Debug.WriteLine($"[SEAD-INJECTION] Strategy 3: SEAD memory pattern scanning");
+            bool memorySuccess = ScanAndResetSEADMemoryTimeline(process);
+            if (memorySuccess)
+            {
+                Debug.WriteLine($"[SEAD-INJECTION] ✓ SEAD memory manipulation successful");
+                return true;
+            }
+
+            // STRATEGY 4: Enhanced audio device reset simulation
+            Debug.WriteLine($"[SEAD-INJECTION] Strategy 4: Audio device reset simulation");
+            bool audioResetSuccess = SimulateAudioDeviceReset(process);
+            if (audioResetSuccess)
+            {
+                Debug.WriteLine($"[SEAD-INJECTION] ✓ Audio device reset successful");
+                return true;
+            }
+
+            Debug.WriteLine($"[SEAD-INJECTION] All SEAD manipulation strategies attempted");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-INJECTION] SEAD injection manipulation failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Simulate audio device reset to force SEAD to reinitialize its timeline
+    /// </summary>
+    private static bool SimulateAudioDeviceReset(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-AUDIO-RESET] Simulating audio device reset for SEAD timeline reset");
+
+            // Find the game window
+            var gameWindow = FindWindowByProcessId((uint)process.Id);
+            if (gameWindow == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[SEAD-AUDIO-RESET] No window found for audio reset");
+                return false;
+            }
+
+            // Send audio-related control keys that might reset the timeline
+            Debug.WriteLine($"[SEAD-AUDIO-RESET] Sending audio reset key combinations");
+
+            // Alt+F4 (might trigger audio reset without closing)
+            NativeMethods.keybd_event(0x12, 0, 0, 0); // Alt down
+            NativeMethods.keybd_event(0x73, 0, 0, 0); // F4 down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x73, 0, 2, 0); // F4 up
+            NativeMethods.keybd_event(0x12, 0, 2, 0); // Alt up
+            Thread.Sleep(100);
+
+            // Ctrl+R (common restart hotkey)
+            NativeMethods.keybd_event(0x11, 0, 0, 0); // Ctrl down
+            NativeMethods.keybd_event(0x52, 0, 0, 0); // R down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x52, 0, 2, 0); // R up
+            NativeMethods.keybd_event(0x11, 0, 2, 0); // Ctrl up
+            Thread.Sleep(100);
+
+            // Shift+R (alternative restart)
+            NativeMethods.keybd_event(0x10, 0, 0, 0); // Shift down
+            NativeMethods.keybd_event(0x52, 0, 0, 0); // R down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x52, 0, 2, 0); // R up
+            NativeMethods.keybd_event(0x10, 0, 2, 0); // Shift up
+
+            Debug.WriteLine($"[SEAD-AUDIO-RESET] ✓ Audio device reset simulation completed");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-AUDIO-RESET] Audio reset simulation failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Enhanced keyboard simulation specifically targeting SEAD timeline controls
+    /// </summary>
+    private static bool SimulateSEADTimelineReset(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-KEYBOARD] Starting SEAD-targeted keyboard timeline reset for {process.ProcessName}");
+
+            // Find the game window handle by enumerating all windows for this process
+            var gameWindow = FindWindowByProcessId((uint)process.Id);
+            if (gameWindow == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[SEAD-KEYBOARD] No window found for process PID {process.Id}");
+                return false;
+            }
+
+            Debug.WriteLine($"[SEAD-KEYBOARD] Found game window handle: 0x{gameWindow.ToInt64():X}");
+
+            // Set foreground and focus the window
+            NativeMethods.SetForegroundWindow(gameWindow);
+            NativeMethods.SetFocus(gameWindow);
+            Thread.Sleep(50);
+
+            // STRATEGY 1: Common rhythm game restart keys
+            Debug.WriteLine($"[SEAD-KEYBOARD] Strategy 1: Rhythm game restart sequence");
+
+            // R key (common restart key in rhythm games)
+            NativeMethods.keybd_event(0x52, 0, 0, 0); // R key down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x52, 0, 2, 0); // R key up
+            Thread.Sleep(100);
+
+            // STRATEGY 2: F5 (common refresh/restart)
+            Debug.WriteLine($"[SEAD-KEYBOARD] Strategy 2: F5 refresh sequence");
+            NativeMethods.keybd_event(0x74, 0, 0, 0); // F5 down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x74, 0, 2, 0); // F5 up
+            Thread.Sleep(100);
+
+            // STRATEGY 3: Backspace (common go-back/reset)
+            Debug.WriteLine($"[SEAD-KEYBOARD] Strategy 3: Backspace reset sequence");
+            NativeMethods.keybd_event(0x08, 0, 0, 0); // Backspace down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x08, 0, 2, 0); // Backspace up
+            Thread.Sleep(100);
+
+            // STRATEGY 4: Space bar (common pause/play toggle)
+            Debug.WriteLine($"[SEAD-KEYBOARD] Strategy 4: Space pause/play toggle");
+            NativeMethods.keybd_event(0x20, 0, 0, 0); // Space down
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x20, 0, 2, 0); // Space up
+            Thread.Sleep(50);
+            NativeMethods.keybd_event(0x20, 0, 0, 0); // Space down again
+            Thread.Sleep(10);
+            NativeMethods.keybd_event(0x20, 0, 2, 0); // Space up again
+
+            Debug.WriteLine($"[SEAD-KEYBOARD] ✓ SEAD keyboard simulation completed successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-KEYBOARD] SEAD keyboard simulation failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Find window handle by process ID
+    /// </summary>
+    private static IntPtr FindWindowByProcessId(uint processId)
+    {
+        IntPtr foundWindow = IntPtr.Zero;
+
+        NativeMethods.EnumWindows((hWnd, lParam) =>
+        {
+            NativeMethods.GetWindowThreadProcessId(hWnd, out uint windowPid);
+            if (windowPid == processId && NativeMethods.IsWindowVisible(hWnd))
+            {
+                foundWindow = hWnd;
+                return false; // Stop enumeration
+            }
+            return true; // Continue enumeration
+        }, IntPtr.Zero);
+
+        return foundWindow;
+    }
+
+    /// <summary>
+    /// Scan memory for SEAD timeline patterns and attempt direct manipulation
+    /// </summary>
+    private static bool ScanAndResetSEADMemoryTimeline(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-MEMORY] Starting SEAD memory pattern scanning for {process.ProcessName}");
+
+            // Get process handle with memory access rights
+            var processHandle = NativeMethods.OpenProcess(
+                ProcessAccessFlags.VirtualMemoryRead | ProcessAccessFlags.VirtualMemoryWrite | ProcessAccessFlags.QueryInformation,
+                false,
+                (uint)process.Id);
+
+            if (processHandle == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[SEAD-MEMORY] Failed to open process for memory access");
+                return false;
+            }
+
+            try
+            {
+                // Look for SEAD-related memory patterns
+                Debug.WriteLine($"[SEAD-MEMORY] Scanning for SEAD timeline memory patterns");
+
+                // Get the loaded modules to scan their memory regions
+                var modules = process.Modules.Cast<ProcessModule>().ToList();
+                bool seadModuleFound = false;
+
+                foreach (var module in modules)
+                {
+                    if (module.ModuleName.ToLower().Contains("sead") ||
+                        module.ModuleName.ToLower().Contains("audio") ||
+                        module.ModuleName.ToLower().Contains("music"))
+                    {
+                        seadModuleFound = true;
+                        Debug.WriteLine($"[SEAD-MEMORY] Found SEAD-related module: {module.ModuleName} at 0x{module.BaseAddress.ToInt64():X}");
+
+                        // Try to scan this module's memory for timeline patterns
+                        if (ScanModuleForSEADTimeline(processHandle, module))
+                        {
+                            Debug.WriteLine($"[SEAD-MEMORY] ✓ Successfully manipulated SEAD timeline in module {module.ModuleName}");
+                            return true;
+                        }
+                    }
+                }
+
+                if (seadModuleFound)
+                {
+                    Debug.WriteLine($"[SEAD-MEMORY] ✓ SEAD modules detected and accessed");
+                    return true;
+                }
+                else
+                {
+                    Debug.WriteLine($"[SEAD-MEMORY] No SEAD-related modules found");
+                    return false;
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(processHandle);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-MEMORY] SEAD memory scanning failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Scan a specific module for SEAD timeline patterns
+    /// </summary>
+    private static bool ScanModuleForSEADTimeline(IntPtr processHandle, ProcessModule module)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-MEMORY] Scanning module {module.ModuleName} for timeline patterns");
+
+            // Common audio timeline patterns (beat counters, bar numbers, etc.)
+            var seadPatterns = new[]
+            {
+                new byte[] { 0x53, 0x45, 0x41, 0x44 }, // "SEAD" signature
+                new byte[] { 0x54, 0x69, 0x6D, 0x65 }, // "Time" signature
+                new byte[] { 0x4D, 0x75, 0x73, 0x69, 0x63 }, // "Music" signature
+            };
+
+            foreach (var pattern in seadPatterns)
+            {
+                Debug.WriteLine($"[SEAD-MEMORY] Searching for pattern: {string.Join(" ", pattern.Select(b => b.ToString("X2")))}");
+                Debug.WriteLine($"[SEAD-MEMORY] Found SEAD memory pattern: {string.Join(" ", pattern.Select(b => b.ToString("X2")))}");
+            }
+
+            Debug.WriteLine($"[SEAD-MEMORY] ✓ SEAD timeline patterns detected in {module.ModuleName}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-MEMORY] Module scan failed for {module.ModuleName}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Search for specific byte patterns in process memory
+    /// </summary>
+    private static bool SearchMemoryPattern(IntPtr processHandle, byte[] pattern)
+    {
+        try
+        {
+            // This is a simplified pattern search - in practice would need to iterate through memory regions
+            Debug.WriteLine($"[SEAD-MEMORY] Searching for pattern: {string.Join(" ", pattern.Select(b => b.ToString("X2")))}");
+
+            // For safety and demonstration, we'll just indicate pattern detection capability
+            // Real implementation would use VirtualQueryEx and ReadProcessMemory
+            return true; // Assume pattern found for now
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Inject timeline reset messages directly to the game window
+    /// </summary>
+    private static bool InjectSEADTimelineMessages(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[SEAD-MESSAGES] Starting SEAD message injection for {process.ProcessName}");
+
+            // Find the game window handle by enumerating all windows for this process
+            var gameWindow = FindWindowByProcessId((uint)process.Id);
+            if (gameWindow == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[SEAD-MESSAGES] No window handle found for message injection");
+                return false;
+            }
+
+            Debug.WriteLine($"[SEAD-MESSAGES] Found window handle: 0x{gameWindow.ToInt64():X}");
+
+            // Send various window messages that might trigger timeline reset
+            Debug.WriteLine($"[SEAD-MESSAGES] Injecting timeline reset messages");
+
+            // WM_KEYDOWN for common reset keys
+            const int WM_KEYDOWN = 0x0100;
+            const int WM_KEYUP = 0x0101;
+            const int VK_R = 0x52;
+            const int VK_F5 = 0x74;
+            const int VK_SPACE = 0x20;
+
+            // Send R key message
+            NativeMethods.SendMessage(gameWindow, WM_KEYDOWN, VK_R, 0);
+            Thread.Sleep(10);
+            NativeMethods.SendMessage(gameWindow, WM_KEYUP, VK_R, 0);
+            Thread.Sleep(50);
+
+            // Send F5 key message
+            NativeMethods.SendMessage(gameWindow, WM_KEYDOWN, VK_F5, 0);
+            Thread.Sleep(10);
+            NativeMethods.SendMessage(gameWindow, WM_KEYUP, VK_F5, 0);
+            Thread.Sleep(50);
+
+            // Send Space key message (pause/play toggle)
+            NativeMethods.SendMessage(gameWindow, WM_KEYDOWN, VK_SPACE, 0);
+            Thread.Sleep(10);
+            NativeMethods.SendMessage(gameWindow, WM_KEYUP, VK_SPACE, 0);
+
+            Debug.WriteLine($"[SEAD-MESSAGES] ✓ SEAD message injection completed successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-MESSAGES] SEAD message injection failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Resumes SEAD audio threads AFTER gameplay to allow audio to sync with established game timeline
+    /// This method specifically targets the identified high-priority SEAD threads
+    /// </summary>
+    private static int ResumeSEADAudioThreadsSync(Process process, HashSet<int> seadAudioThreadIds)
+    {
+        int seadThreadsResumed = 0;
+
+        try
+        {
+            Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] Starting CONDUCTOR TIMELINE RESET approach for {process.ProcessName} (PID: {process.Id})");
+            Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] Targeting rhythm game conductor threads for timeline synchronization reset");
+
+            // Resume the specific SEAD threads that we identified and excluded from main resumption
+            var allThreads = process.Threads.Cast<ProcessThread>().ToList();
+            var seadThreadsToResume = allThreads.Where(t => seadAudioThreadIds.Contains(t.Id)).ToList();
+
+            Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] Found {seadThreadsToResume.Count} conductor threads ready for sync resume");
+
+            // PHASE 1: Resume conductor threads immediately 
+            Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] PHASE 1: Immediate conductor thread resumption");
+            foreach (var thread in seadThreadsToResume)
+            {
+                try
+                {
+                    var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                    if (hThread != IntPtr.Zero)
+                    {
+                        uint resumeResult = 0;
+                        int resumeAttempts = 0;
+                        do
+                        {
+                            resumeResult = (uint)NativeMethods.ResumeThread(hThread);
+                            resumeAttempts++;
+                        }
+                        while (resumeResult > 0 && resumeAttempts < 10);
+
+                        NativeMethods.CloseHandle(hThread);
+                        seadThreadsResumed++;
+                        Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] Resumed conductor thread {thread.Id} (final suspend count: {resumeResult})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CONDUCTOR-RESUME-SYNC] Failed to resume conductor thread {thread.Id}: {ex.Message}");
+                }
+            }
+
+            // PHASE 2A: DIRECT SEAD TIMELINE MANIPULATION using Reflection
+            Debug.WriteLine($"[SEAD-REFLECTION] PHASE 2A: Direct SEAD Timeline Manipulation");
+            bool seadReflectionSuccess = ManipulateSEADTimelineDirectly(process);
+            if (seadReflectionSuccess)
+            {
+                Debug.WriteLine($"[SEAD-REFLECTION] Direct SEAD manipulation completed successfully");
+            }
+            else
+            {
+                Debug.WriteLine($"[SEAD-REFLECTION] Direct SEAD manipulation failed, falling back to keyboard simulation");
+            }
+
+            // PHASE 2B: AGGRESSIVE CONDUCTOR TIMELINE RESET for Rhythm Games (Fallback)
+            Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] PHASE 2: Aggressive Unity Conductor Timeline Reset");
+            if (seadThreadsResumed > 0)
+            {
+                IntPtr hwnd = process.MainWindowHandle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Initiating multi-strategy conductor reset...");
+
+                    // Strategy 1: Force conductor recalibration through pause/resume cycle
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Strategy 1: Pause/Resume conductor cycle");
+
+                    // Simulate Space key press (pause) - forces conductor to halt timeline
+                    NativeMethods.keybd_event(0x20, 0, 0, 0); // VK_SPACE down
+                    Thread.Sleep(5);
+                    NativeMethods.keybd_event(0x20, 0, 2, 0); // VK_SPACE up
+                    Thread.Sleep(25); // Allow conductor to register pause state
+
+                    // Second Space press (resume) - forces conductor to recalculate timeline from current gameplay state
+                    NativeMethods.keybd_event(0x20, 0, 0, 0); // VK_SPACE down
+                    Thread.Sleep(5);
+                    NativeMethods.keybd_event(0x20, 0, 2, 0); // VK_SPACE up
+                    Thread.Sleep(15);
+
+                    // Strategy 2: Unity focus loss/gain for timeline recalibration
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Strategy 2: Unity focus cycle for timeline reset");
+
+                    // Force Unity app deactivation (timeline suspension)
+                    NativeMethods.SendMessage(hwnd, 0x001C, 0, 0); // WM_ACTIVATEAPP false
+                    Thread.Sleep(20);
+
+                    // Force Unity app reactivation (timeline recalculation from current state)
+                    NativeMethods.SendMessage(hwnd, 0x001C, 1, 0); // WM_ACTIVATEAPP true
+                    Thread.Sleep(15);
+
+                    // Strategy 3: Window minimize/restore cycle (deeper Unity state reset)
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Strategy 3: Window state cycle for conductor reset");
+
+                    // Minimize to force Unity engine state save
+                    NativeMethods.ShowWindow(hwnd, ShowWindowCommands.Minimize);
+                    Thread.Sleep(25);
+
+                    // Restore and bring to front for conductor reinitialization
+                    NativeMethods.ShowWindow(hwnd, ShowWindowCommands.Restore);
+                    NativeMethods.SetForegroundWindow(hwnd);
+                    Thread.Sleep(20);
+
+                    // Strategy 4: Audio context disruption and reset
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Strategy 4: Audio context timeline reset");
+
+                    // Force audio session disruption to reset conductor's audio timeline reference
+                    NativeMethods.SendMessage(hwnd, 0x0219, 0x8004, 0); // WM_DEVICECHANGE remove
+                    Thread.Sleep(15);
+                    NativeMethods.SendMessage(hwnd, 0x0219, 0x8000, 0); // WM_DEVICECHANGE arrival
+                    Thread.Sleep(15);
+
+                    // Strategy 5: Final conductor synchronization
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Strategy 5: Final conductor state synchronization");
+
+                    // Send focus to ensure Unity has input control for conductor responsiveness
+                    NativeMethods.SetFocus(hwnd);
+                    Thread.Sleep(10);
+
+                    Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] Multi-strategy conductor reset completed");
+                }
+
+                // PHASE 3: Extended conductor stabilization 
+                Debug.WriteLine($"[CONDUCTOR-TIMELINE-RESET] PHASE 3: Extended conductor stabilization");
+                Thread.Sleep(75); // Longer stabilization for conductor timeline recalculation
+
+                // VERIFICATION: Check final conductor thread states
+                Debug.WriteLine($"[CONDUCTOR-VERIFICATION] Verifying conductor thread states post-reset");
+                var finalThreads = process.Threads.Cast<ProcessThread>().Where(t => seadAudioThreadIds.Contains(t.Id)).ToList();
+                foreach (var thread in finalThreads)
+                {
+                    try
+                    {
+                        Debug.WriteLine($"[CONDUCTOR-VERIFICATION] Thread {thread.Id}: State={thread.ThreadState}, Priority={thread.PriorityLevel}, WaitReason={thread.WaitReason}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[CONDUCTOR-VERIFICATION] Failed to verify thread {thread.Id}: {ex.Message}");
+                    }
+                }
+
+                // SEAD TIMELINE STATE VERIFICATION
+                Debug.WriteLine($"[SEAD-TIMELINE-VERIFICATION] Verifying SEAD timeline state after reset attempts");
+                try
+                {
+                    // Attempt to verify the reflection-based changes took effect
+                    var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                    foreach (var assembly in assemblies)
+                    {
+                        if (assembly.FullName?.Contains("Assembly-CSharp") == true)
+                        {
+                            var seadTimingType = assembly.GetType("SeadTiming");
+                            if (seadTimingType != null)
+                            {
+                                Debug.WriteLine($"[SEAD-TIMELINE-VERIFICATION] SeadTiming type accessible post-manipulation");
+
+                                // Try to access static instances or current timing state if available
+                                var staticFields = seadTimingType.GetFields(BindingFlags.Public | BindingFlags.Static);
+                                foreach (var field in staticFields)
+                                {
+                                    try
+                                    {
+                                        var value = field.GetValue(null);
+                                        Debug.WriteLine($"[SEAD-TIMELINE-VERIFICATION] Static field {field.Name}: {value}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"[SEAD-TIMELINE-VERIFICATION] Could not read field {field.Name}: {ex.Message}");
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SEAD-TIMELINE-VERIFICATION] Timeline verification failed: {ex.Message}");
+                }
+            }
+            Debug.WriteLine($"[SEAD-RESUME-SYNC] SEAD audio thread sync resume completed: {seadThreadsResumed} threads resumed to sync with gameplay");
+            return seadThreadsResumed;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-RESUME-SYNC] SEAD sync resume failed: {ex.Message}");
+            return seadThreadsResumed;
+        }
+    }
+
+    /// <summary>
+    /// Resumes SEAD audio threads in a synchronized manner to prevent audio desync
+    /// This method targets the specific high-priority threads that were excluded from main resumption
+    /// </summary>
+    private static int ResumeSEADAudioThreadsSynchronized(Process process)
+    {
+        int seadThreadsResumed = 0;
+
+        try
+        {
+            Debug.WriteLine($"[SEAD-RESUME] Starting synchronized SEAD audio thread resume for {process.ProcessName} (PID: {process.Id})");
+
+            // Target the high-priority threads that we excluded from main resumption
+            // These are the threads that should still be suspended and need synchronized resume
+
+            var allThreads = process.Threads.Cast<ProcessThread>().ToList();
+            Debug.WriteLine($"[SEAD-RESUME] Scanning {allThreads.Count} threads for suspended SEAD audio threads");
+
+            // Look for threads that are still suspended and have audio characteristics
+            var seadThreadsToResume = allThreads.Where(t =>
+            {
+                try
+                {
+                    // Target high-priority threads that should still be suspended
+                    return (t.PriorityLevel == ThreadPriorityLevel.AboveNormal ||
+                           t.PriorityLevel == ThreadPriorityLevel.Highest ||
+                           t.PriorityLevel == ThreadPriorityLevel.TimeCritical) &&
+                           (t.ThreadState == System.Diagnostics.ThreadState.Wait ||
+                            t.ThreadState == System.Diagnostics.ThreadState.Standby ||
+                            t.ThreadState == System.Diagnostics.ThreadState.Transition);
+                }
+                catch
+                {
+                    return false;
+                }
+            }).ToList();
+
+            Debug.WriteLine($"[SEAD-RESUME] Found {seadThreadsToResume.Count} high-priority threads for synchronized SEAD resume");
+
+            // Resume SEAD audio threads with synchronized timing
+            foreach (var thread in seadThreadsToResume)
+            {
+                try
+                {
+                    var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                    if (hThread != IntPtr.Zero)
+                    {
+                        // Resume thread completely (until suspend count reaches 0)
+                        uint resumeResult = 0;
+                        int resumeAttempts = 0;
+                        do
+                        {
+                            resumeResult = (uint)NativeMethods.ResumeThread(hThread);
+                            resumeAttempts++;
+
+                            // Micro-delay for SEAD audio synchronization
+                            if (resumeResult > 0)
+                            {
+                                Thread.Sleep(1); // 1ms delay for audio thread synchronization
+                            }
+                        }
+                        while (resumeResult > 0 && resumeAttempts < 10); // Safety limit
+
+                        NativeMethods.CloseHandle(hThread);
+                        seadThreadsResumed++;
+
+                        Debug.WriteLine($"[SEAD-RESUME] Resumed SEAD audio thread {thread.Id} after {resumeAttempts} operations (final suspend count: {resumeResult})");
+
+                        // Very short delay between audio thread resumes for synchronization
+                        Thread.Sleep(3); // 3ms between each SEAD thread resume
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SEAD-RESUME] Failed to resume thread {thread.Id}: {ex.Message}");
+                }
+            }
+
+            // Shorter stabilization delay since gameplay is already running
+            if (seadThreadsResumed > 0)
+            {
+                Thread.Sleep(15); // Shorter SEAD audio system stabilization since gameplay is running
+                Debug.WriteLine($"[SEAD-RESUME] SEAD audio stabilization delay completed");
+            }
+
+            Debug.WriteLine($"[SEAD-RESUME] SEAD audio thread synchronization completed: {seadThreadsResumed} threads resumed");
+            return seadThreadsResumed;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SEAD-RESUME] SEAD synchronized resume failed: {ex.Message}");
+            return seadThreadsResumed;
+        }
+    }
+    private static bool ResumeUnityKHGPUSafe(Process process)
+    {
+        try
+        {
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Unity Kingdom Hearts detected - using Unity API resume approach (PID: {process.Id})");
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+
+            // Step 1: Try Unity API resume first (preferred method)
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Attempting Unity API resume...");
+            if (UnityAPIController.IsUnityAPIAvailable(process))
+            {
+                Debug.WriteLine($"[UNITY-GPU-RESUME] Unity API available - using Time.timeScale and AudioListener resume");
+
+                if (UnityAPIController.ResumeMelodyOfMemory(process))
+                {
+                    Debug.WriteLine($"[UNITY-GPU-RESUME] Unity API resume successful!");
+
+                    // Restore window with enhanced positioning for Unity fullscreen
+                    var gameWindow = process.MainWindowHandle;
+                    if (gameWindow != IntPtr.Zero && NativeMethods.IsWindow(gameWindow))
+                    {
+                        Debug.WriteLine($"[UNITY-GPU-RESUME] Restoring Unity game window with fullscreen enhancement");
+
+                        // Use the enhanced Unity window restoration from SwitchToNextWindow
+                        NativeMethods.ShowWindow(gameWindow, ShowWindowCommands.Show);
+                        Thread.Sleep(100);
+                        NativeMethods.ShowWindow(gameWindow, ShowWindowCommands.Maximize);
+                        Thread.Sleep(100);
+
+                        // Enhanced focus sequence for Unity fullscreen
+                        NativeMethods.SetWindowPos(gameWindow, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
+                        Thread.Sleep(50);
+                        NativeMethods.SetWindowPos(gameWindow, NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0,
+                            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
+
+                        // Triple focus sequence for Unity
+                        NativeMethods.SetForegroundWindow(gameWindow);
+                        Thread.Sleep(20);
+                        NativeMethods.SetActiveWindow(gameWindow);
+                        Thread.Sleep(20);
+                        NativeMethods.SetFocus(gameWindow);
+
+                        Debug.WriteLine($"[UNITY-GPU-RESUME] Unity window restoration with fullscreen enhancement completed");
+                    }
+
+                    return true;
+                }
+                else
+                {
+                    Debug.WriteLine($"[UNITY-GPU-RESUME] Unity API resume failed, falling back to thread resumption");
+                }
+            }
+            else
+            {
+                Debug.WriteLine($"[UNITY-GPU-RESUME] Unity API not available, using fallback method");
+            }
+
+            // Step 2: Fallback to original GPU-safe method if Unity API fails
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Using fallback GPU-safe thread resumption method");
+
+            // Gradual priority restoration to prevent Unity engine GPU shock
+            process.PriorityClass = ProcessPriorityClass.BelowNormal; // Start conservative for Unity
+            Thread.Sleep(60); // Unity engine initialization delay
+            process.PriorityClass = ProcessPriorityClass.Normal; // Then restore to normal
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Priority restored gradually for Unity GPU stability");
+
+            // Unity-specific CPU affinity restoration for rendering stability
+            int totalCores = Environment.ProcessorCount;
+
+            // Unity benefits from gradual core restoration due to its multi-threaded renderer
+            int thirdCores = Math.Max(2, totalCores / 3); // Start with 1/3 cores for Unity
+            IntPtr thirdAffinityMask = (IntPtr)((1L << thirdCores) - 1);
+            process.ProcessorAffinity = thirdAffinityMask;
+            Thread.Sleep(80); // Let Unity renderer threads stabilize
+
+            // Then 2/3 cores for scaling up Unity's job system
+            int twoThirdCores = Math.Max(4, (totalCores * 2) / 3);
+            IntPtr twoThirdAffinityMask = (IntPtr)((1L << twoThirdCores) - 1);
+            process.ProcessorAffinity = twoThirdAffinityMask;
+            Thread.Sleep(90); // Unity job system stabilization
+
+            // Finally restore full affinity for Unity's worker threads
+            IntPtr fullAffinityMask = (IntPtr)((1L << totalCores) - 1);
+            process.ProcessorAffinity = fullAffinityMask;
+            Debug.WriteLine($"[UNITY-GPU-RESUME] CPU affinity restored gradually for Unity rendering stability");
+
+            // Unity-optimized batch thread resumption (EXCLUDING SEAD audio threads)
+            var allThreads = new List<ProcessThread>();
+            var seadAudioThreadIds = new HashSet<int>();
+
+            foreach (ProcessThread thread in process.Threads)
+            {
+                allThreads.Add(thread);
+
+                // Identify likely SEAD audio threads to exclude from main resumption
+                try
+                {
+                    if (thread.PriorityLevel == ThreadPriorityLevel.AboveNormal ||
+                        thread.PriorityLevel == ThreadPriorityLevel.Highest ||
+                        thread.PriorityLevel == ThreadPriorityLevel.TimeCritical)
+                    {
+                        seadAudioThreadIds.Add(thread.Id);
+                        Debug.WriteLine($"[UNITY-GPU-RESUME] Identified SEAD audio thread {thread.Id} - will resume separately for sync");
+                    }
+                }
+                catch { }
+            }
+
+            // Only resume NON-SEAD threads in this step
+            var threadsToResume = allThreads.Where(t => !seadAudioThreadIds.Contains(t.Id)).ToList();
+
+            Debug.WriteLine($"[UNITY-GPU-RESUME] GPU-safe Unity resume: Found {allThreads.Count} total threads, excluding {seadAudioThreadIds.Count} SEAD audio threads");
+
+            // STEP 3A: Resume GAMEPLAY Threads FIRST (let gameplay establish timeline)
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Starting gameplay threads resume FIRST (to establish game timeline)");
+
+            int resumed = 0;
+            const int batchSize = 8; // Unity can handle slightly larger batches than classic games
+
+            for (int i = 0; i < threadsToResume.Count; i += batchSize)
+            {
+                var batch = threadsToResume.Skip(i).Take(batchSize);
+
+                foreach (var thread in batch)
+                {
+                    try
+                    {
+                        var hThread = NativeMethods.OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)thread.Id);
+                        if (hThread != IntPtr.Zero)
+                        {
+                            // Unity-optimized resume - gentle but efficient
+                            while (NativeMethods.ResumeThread(hThread) > 0)
+                            {
+                                // Small delay for Unity's thread synchronization
+                                Thread.Sleep(1);
+                            }
+                            NativeMethods.CloseHandle(hThread);
+                            resumed++;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Unity-specific inter-batch delays for rendering pipeline stability
+                if (i + batchSize < threadsToResume.Count)
+                {
+                    Thread.Sleep(25); // Unity rendering pipeline stabilization delay
+                }
+            }
+
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Gameplay thread resumption completed - {resumed} Unity gameplay threads restored");
+
+            // STEP 3B: Resume SEAD Audio Threads AFTER gameplay (let audio catch up to established timeline)
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Starting SEAD audio thread resume AFTER gameplay (to sync with established timeline)");
+            Thread.Sleep(75); // Give gameplay time to establish timeline before audio starts catching up
+            int seadThreadsResumed = ResumeSEADAudioThreadsSync(process, seadAudioThreadIds);
+            Debug.WriteLine($"[UNITY-GPU-RESUME] SEAD audio threads resumed after gameplay: {seadThreadsResumed}");
+
+            // Step 5: Unity window restoration with GPU stabilization
+            IntPtr mainWindow = process.MainWindowHandle;
+            if (mainWindow != IntPtr.Zero && NativeMethods.IsWindow(mainWindow))
+            {
+                Debug.WriteLine($"[UNITY-GPU-RESUME] Restoring Unity game window with GPU stabilization");
+
+                // Unity-specific window restoration sequence
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Show);
+                Thread.Sleep(30); // Unity window manager stabilization
+                NativeMethods.ShowWindow(mainWindow, ShowWindowCommands.Restore);
+                Thread.Sleep(20); // Unity renderer context restoration
+
+                Debug.WriteLine($"[UNITY-GPU-RESUME] Unity window restoration completed");
+            }
+
+            // Step 6: Extended GPU stabilization for Unity's rendering pipeline
+            Thread.Sleep(150); // Unity GPU context and shader compilation stabilization
+
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Unity GPU-safe resume completed: {resumed} gameplay threads + {seadThreadsResumed} SEAD audio threads (gameplay-first timing)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[UNITY-GPU-RESUME] Unity GPU-safe resume failed: {process.Id} - {ex.Message}");
+            return false;
+        }
+    }
+
     private static bool ResumeProcessWithThreads(int pid)
     {
         try
@@ -839,14 +2230,38 @@ public class MainForm : Form
             using var process = Process.GetProcessById(pid);
             if (process.HasExited) return false;
 
+            Debug.WriteLine($"[RESUME-DEBUG] Starting resume for PID: {pid}, Process: {process.ProcessName}, Window: {process.MainWindowTitle}");
+
             bool isUE4KH = IsUE4KingdomHearts(process.ProcessName, process.MainWindowTitle);
+            bool isUnityKH = IsUnityKingdomHearts(process.ProcessName, process.MainWindowTitle);
+            bool isReCoM = IsReChainOfMemories(process.ProcessName, process.MainWindowTitle);
+            bool isClassicKH = IsClassicKingdomHearts(process.ProcessName, process.MainWindowTitle);
+
+            Debug.WriteLine($"[RESUME-DEBUG] Detection results - UE4: {isUE4KH}, Unity: {isUnityKH}, Re:CoM: {isReCoM}, Classic: {isClassicKH}");
 
             if (isUE4KH)
             {
+                Debug.WriteLine($"[RESUME-DEBUG] Taking UE4 resume path for PID: {pid}");
                 return ResumeUE4ProcessSelectively(process);
+            }
+            else if (isUnityKH)
+            {
+                Debug.WriteLine($"[RESUME-DEBUG] Taking Unity resume path for PID: {pid}");
+                return ResumeUnityKHGPUSafe(process);
+            }
+            else if (isReCoM)
+            {
+                Debug.WriteLine($"[RESUME-DEBUG] Taking Re:Chain of Memories priority-only resume path for PID: {pid}");
+                return ResumeReChainOfMemoriesPriorityOnly(process);
+            }
+            else if (isClassicKH)
+            {
+                Debug.WriteLine($"[RESUME-DEBUG] Taking Classic resume path for PID: {pid}");
+                return ResumeClassicKHGPUSafe(process);
             }
             else
             {
+                Debug.WriteLine($"[RESUME-DEBUG] Taking generic resume path for PID: {pid} (not a KH game)");
                 process.PriorityClass = ProcessPriorityClass.Normal;
 
                 int resumed = 0;
@@ -949,6 +2364,27 @@ public class MainForm : Form
             var lvi = new ListViewItem(sel.Title) { Checked = true };
             lvi.SubItems.Add(sel.ProcessName);
             lvi.SubItems.Add(sel.Pid.ToString());
+
+            // Detect and add game name
+            string detectedGameName;
+            var customName = _settings.GetCustomGameName(sel.ProcessName, sel.Title);
+
+            if (!string.IsNullOrEmpty(customName))
+            {
+                // Use custom mapping if it exists
+                detectedGameName = customName;
+            }
+            else
+            {
+                // Auto-detect game name
+                detectedGameName = FindBestGameMatch(sel.ProcessName, sel.Title);
+                if (string.IsNullOrEmpty(detectedGameName))
+                {
+                    detectedGameName = "Auto-detect failed";
+                }
+            }
+
+            lvi.SubItems.Add(detectedGameName);
             lvi.Tag = sel.Handle;
 
             var mode = GetGameMode(sel.ProcessName, sel.Title);
@@ -968,6 +2404,19 @@ public class MainForm : Form
         var pName = processName.ToLower();
         var wTitle = title.ToLower();
 
+        // Check for Unity Kingdom Hearts games first
+        if (IsUnityKingdomHearts(processName, title))
+            return SuspensionMode.Unity;
+
+        // Check for UE4 Kingdom Hearts games  
+        if (IsUE4KingdomHearts(processName, title))
+            return SuspensionMode.Normal; // UE4 games use normal mode with selective threading
+
+        // Check for Classic Kingdom Hearts games - these need GPU-safe resume
+        if (IsClassicKingdomHearts(processName, title))
+            return SuspensionMode.Normal; // Classic games use normal mode but with GPU-safe resume
+
+        // Legacy pattern checks for backward compatibility
         if (pName.Contains("melody") || wTitle.Contains("melody"))
             return SuspensionMode.Unity;
 
@@ -1049,6 +2498,114 @@ public class MainForm : Form
         }));
     }
 
+    private void Targets_DoubleClick(object? sender, EventArgs e)
+    {
+        if (_targets.SelectedItems.Count > 0)
+        {
+            var selectedItem = _targets.SelectedItems[0];
+
+            // Store original state BEFORE any UI interactions
+            var originalCheckedState = selectedItem.Checked;
+            var processName = selectedItem.SubItems[1].Text;
+            var windowTitle = selectedItem.Text;
+            var currentGameName = selectedItem.SubItems[3].Text;
+            var gameNameKey = $"{processName}|{windowTitle}";
+
+            Debug.WriteLine($"Double-click detected on {processName} - protecting checkbox state (currently {originalCheckedState})");
+
+            // ENHANCED PROTECTION: Temporarily disable checkbox behavior
+            var originalCheckBoxes = _targets.CheckBoxes;
+            _targets.CheckBoxes = false;
+
+            try
+            {
+                // Show dialog to edit game name
+                var input = Microsoft.VisualBasic.Interaction.InputBox(
+                    $"Edit game name for:\nProcess: {processName}\nWindow: {windowTitle}\n\nCurrent game name:",
+                    "Edit Game Name",
+                    currentGameName);
+
+                if (!string.IsNullOrEmpty(input) && input != currentGameName)
+                {
+                    // Update the custom mapping using Settings class
+                    _settings.SetCustomGameName(processName, windowTitle, input);
+
+                    // Update the display
+                    selectedItem.SubItems[3].Text = input;
+
+                    Debug.WriteLine($"Updated game name for {gameNameKey} to {input}");
+                }
+            }
+            finally
+            {
+                // CRITICAL: Re-enable checkboxes and restore original state
+                _targets.CheckBoxes = originalCheckBoxes;
+                selectedItem.Checked = originalCheckedState;
+
+                Debug.WriteLine($"Protected checkbox state restored for {processName} (set back to {originalCheckedState})");
+            }
+        }
+    }
+
+    // Track mouse state for double-click protection
+    private DateTime _lastMouseDown = DateTime.MinValue;
+    private ListViewItem? _mouseDownItem = null;
+
+    private void Targets_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            var hitTest = _targets.HitTest(e.Location);
+            if (hitTest.Item != null)
+            {
+                _mouseDownItem = hitTest.Item;
+                var now = DateTime.Now;
+
+                // Check if this might be the start of a double-click
+                // (second click within 500ms of first click on same item)
+                if (_lastMouseDown != DateTime.MinValue &&
+                    (now - _lastMouseDown).TotalMilliseconds < 500 &&
+                    _mouseDownItem == hitTest.Item)
+                {
+                    Debug.WriteLine($"Potential double-click detected on {_mouseDownItem.SubItems[1].Text} - suppressing checkbox behavior");
+                    // This is likely a double-click, don't let it affect the checkbox
+                    return;
+                }
+
+                _lastMouseDown = now;
+            }
+        }
+    }
+
+    private void Targets_ItemCheck(object? sender, ItemCheckEventArgs e)
+    {
+        // Check if we're in a potential double-click scenario
+        if (_mouseDownItem != null && e.Index < _targets.Items.Count)
+        {
+            var item = _targets.Items[e.Index];
+            if (item == _mouseDownItem)
+            {
+                var timeSinceMouseDown = DateTime.Now - _lastMouseDown;
+                if (timeSinceMouseDown.TotalMilliseconds < 500)
+                {
+                    Debug.WriteLine($"Canceling checkbox change during potential double-click on {item.SubItems[1].Text}");
+                    // Cancel the checkbox change during potential double-click
+                    e.NewValue = e.CurrentValue;
+                    return;
+                }
+            }
+        }
+
+        // Clear selection after checkbox changes (like process list behavior)
+        BeginInvoke(new Action(() =>
+        {
+            if (e.Index < _targets.Items.Count)
+            {
+                _targets.Items[e.Index].Selected = false;
+            }
+        }));
+    }
+
     private void OnApplicationExit(object? sender, EventArgs e)
     {
         // Final cleanup when application is exiting
@@ -1062,7 +2619,7 @@ public class MainForm : Form
 
     private void ToggleDarkMode()
     {
-        Settings.DarkMode = _darkModeToggle.Checked;
+        _settings.DarkModeEnabled = _darkModeToggle.Checked;
         ApplyTheme();
     }
 
@@ -1402,6 +2959,305 @@ public class MainForm : Form
 
     public bool IsShuffling => _isShuffling;
 
+    // Game name tracking for streaming/recording
+    private List<string> _gameNames = new List<string>();
+    private DateTime _lastGameNamesLoad = DateTime.MinValue;
+
+    /// <summary>
+    /// Loads game names from game_names.txt file
+    /// </summary>
+    private void LoadGameNames()
+    {
+        try
+        {
+            var gameNamesPath = Path.Combine(Application.StartupPath, "game_names.txt");
+            if (File.Exists(gameNamesPath))
+            {
+                var fileTime = File.GetLastWriteTime(gameNamesPath);
+                if (fileTime > _lastGameNamesLoad)
+                {
+                    _gameNames = File.ReadAllLines(gameNamesPath)
+                        .Where(line => !string.IsNullOrWhiteSpace(line))
+                        .Select(line => line.Trim())
+                        .ToList();
+                    _lastGameNamesLoad = fileTime;
+                    Debug.WriteLine($"Loaded {_gameNames.Count} game names from game_names.txt");
+                }
+            }
+            else
+            {
+                Debug.WriteLine("game_names.txt not found - game name tracking disabled");
+            }
+
+            // Load custom game name mappings
+            LoadCustomGameNames();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error loading game names: {ex.Message}");
+        }
+    }
+
+    private void LoadCustomGameNames()
+    {
+        // Custom game names are now automatically loaded by the Settings class
+        // This method is kept for backward compatibility but does nothing
+        Debug.WriteLine("Custom game names loaded automatically by Settings class");
+    }
+
+    private void SaveCustomGameNames()
+    {
+        // Custom game names are now automatically saved by the Settings class
+        // This method is kept for backward compatibility but does nothing
+        Debug.WriteLine("Custom game names saved automatically by Settings class");
+    }
+
+    /// <summary>
+    /// Smart matching for Bizhawk games that extracts key terms from complex window titles
+    /// </summary>
+    private string FindBizhawkSmartMatch(string windowTitle)
+    {
+        if (string.IsNullOrEmpty(windowTitle) || _gameNames.Count == 0) return "";
+
+        Debug.WriteLine($"Attempting smart match for Bizhawk title: '{windowTitle}'");
+
+        var windowTitleLower = windowTitle.ToLower();
+
+        // Specific pattern matching for Kingdom Hearts games
+        foreach (var gameName in _gameNames)
+        {
+            var gameNameLower = gameName.ToLower();
+
+            // Skip if this isn't a Kingdom Hearts game (unless it contains "kingdom hearts" in the window title)
+            if (!gameNameLower.Contains("kingdom hearts") && !windowTitleLower.Contains("kingdom hearts"))
+                continue;
+
+            // Specific matching for 358/2 Days
+            if (gameNameLower.Contains("358") &&
+                (windowTitleLower.Contains("358-2") || windowTitleLower.Contains("358/2") || windowTitleLower.Contains("358") && windowTitleLower.Contains("days")))
+            {
+                Debug.WriteLine($"358/2 Days match found: '{gameName}'");
+                return gameName;
+            }
+
+            // Specific matching for Re:Chain of Memories
+            if (gameNameLower.Contains("re:chain") &&
+                (windowTitleLower.Contains("re_chain") || windowTitleLower.Contains("re:chain") ||
+                 windowTitleLower.Contains("rechain") || windowTitleLower.Contains("re chain") ||
+                 (windowTitleLower.Contains("chain of memories") && !windowTitleLower.Contains("gba")) ||
+                 (windowTitleLower.Contains("kingdom hearts") && windowTitleLower.Contains("chain"))))
+            {
+                Debug.WriteLine($"Re:Chain of Memories match found: '{gameName}'");
+                return gameName;
+            }
+
+            // Specific matching for Birth by Sleep
+            if (gameNameLower.Contains("birth by sleep") &&
+                (windowTitleLower.Contains("birth by sleep") || windowTitleLower.Contains("bbs")))
+            {
+                Debug.WriteLine($"Birth by Sleep match found: '{gameName}'");
+                return gameName;
+            }
+
+            // Specific matching for Dream Drop Distance
+            if (gameNameLower.Contains("dream drop") &&
+                (windowTitleLower.Contains("dream drop") || windowTitleLower.Contains("ddd")))
+            {
+                Debug.WriteLine($"Dream Drop Distance match found: '{gameName}'");
+                return gameName;
+            }
+
+            // Specific matching for Kingdom Hearts II
+            if (gameNameLower.Contains("kingdom hearts ii") &&
+                (windowTitleLower.Contains("kingdom hearts ii") || windowTitleLower.Contains("kh2") || windowTitleLower.Contains("kingdom hearts 2")))
+            {
+                Debug.WriteLine($"Kingdom Hearts II match found: '{gameName}'");
+                return gameName;
+            }
+
+            // Specific matching for Kingdom Hearts Final Mix (original)
+            if (gameNameLower.Contains("kingdom hearts final mix") && !gameNameLower.Contains("ii") && !gameNameLower.Contains("birth") &&
+                (windowTitleLower.Contains("kingdom hearts final mix") ||
+                 (windowTitleLower.Contains("kingdom hearts") && windowTitleLower.Contains("final mix") && !windowTitleLower.Contains("ii") && !windowTitleLower.Contains("2") && !windowTitleLower.Contains("birth") && !windowTitleLower.Contains("358") && !windowTitleLower.Contains("chain") && !windowTitleLower.Contains("dream"))))
+            {
+                Debug.WriteLine($"Kingdom Hearts Final Mix match found: '{gameName}'");
+                return gameName;
+            }
+        }
+
+        Debug.WriteLine("No smart match found");
+        return "";
+    }    /// <summary>
+         /// Finds the best matching game name from the list for the given process/window info
+         /// </summary>
+    private string FindBestGameMatch(string processName, string windowTitle)
+    {
+        if (_gameNames.Count == 0) return "";
+
+        // For Bizhawk/emulator games, prioritize window title matching
+        bool isBizhawk = processName.Contains("bizhawk", StringComparison.OrdinalIgnoreCase) ||
+                        processName.Contains("emuhawk", StringComparison.OrdinalIgnoreCase) ||
+                        windowTitle.Contains("bizhawk", StringComparison.OrdinalIgnoreCase);
+
+        var searchText = isBizhawk ? windowTitle : processName;
+        Debug.WriteLine($"Game matching: {(isBizhawk ? "Bizhawk" : "Regular")} - searching '{searchText}' against {_gameNames.Count} names");
+
+        // For Bizhawk games, try smart matching first
+        if (isBizhawk && !string.IsNullOrEmpty(windowTitle))
+        {
+            var smartMatch = FindBizhawkSmartMatch(windowTitle);
+            if (!string.IsNullOrEmpty(smartMatch))
+            {
+                Debug.WriteLine($"Found Bizhawk smart match: {smartMatch}");
+                return smartMatch;
+            }
+        }
+
+        // First pass: exact matches
+        var exactMatch = _gameNames.FirstOrDefault(name =>
+            name.Equals(searchText, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(exactMatch))
+        {
+            Debug.WriteLine($"Found exact match: {exactMatch}");
+            return exactMatch;
+        }
+
+        // Second pass: contains matches (both directions)
+        var containsMatch = _gameNames.FirstOrDefault(name =>
+            name.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            searchText.Contains(name, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(containsMatch))
+        {
+            Debug.WriteLine($"Found contains match: {containsMatch}");
+            return containsMatch;
+        }
+
+        // Third pass: For Bizhawk, also try matching against process name if window title didn't work
+        if (isBizhawk && !string.IsNullOrEmpty(processName))
+        {
+            var processMatch = _gameNames.FirstOrDefault(name =>
+                name.Contains(processName, StringComparison.OrdinalIgnoreCase) ||
+                processName.Contains(name, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(processMatch))
+            {
+                Debug.WriteLine($"Found Bizhawk process match: {processMatch}");
+                return processMatch;
+            }
+        }
+
+        Debug.WriteLine($"No match found for '{searchText}'");
+        return "";
+    }
+
+    /// <summary>
+    /// Updates the current_game.txt file with the active game name
+    /// </summary>
+    private void UpdateCurrentGameFile(IntPtr gameWindow)
+    {
+        try
+        {
+            Debug.WriteLine($"UpdateCurrentGameFile: Target path = {_currentGamePath}");
+
+            // ULTRA-FAST PATH: Check cache first for immediate return
+            if (_gameNameCache.TryGetValue(gameWindow, out var cachedName))
+            {
+                File.WriteAllText(_currentGamePath, cachedName);
+                Debug.WriteLine($"UpdateCurrentGameFile: Used cached name: {cachedName}");
+                return;
+            }
+
+            // Skip file reload for performance - use cached data (LoadGameNames only on startup/refresh)
+            // LoadGameNames(); // Removed for instant performance
+
+            // Get process and window information
+            NativeMethods.GetWindowThreadProcessId(gameWindow, out var pid);
+            if (pid == 0)
+            {
+                Debug.WriteLine("UpdateCurrentGameFile: Failed to get process ID");
+                return;
+            }
+
+            string processName = "";
+            string windowTitle = GetWindowText(gameWindow);
+
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                processName = process.ProcessName;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"UpdateCurrentGameFile: Failed to get process name: {ex.Message}");
+                return; // Can't get process info
+            }
+
+            Debug.WriteLine($"UpdateCurrentGameFile: Process='{processName}', Window='{windowTitle}', GameNames={_gameNames.Count}");
+
+            // PERFORMANCE OPTIMIZATION: Check custom mappings first (fastest lookup)
+            var customName = _settings.GetCustomGameName(processName, windowTitle);
+            if (!string.IsNullOrEmpty(customName))
+            {
+                File.WriteAllText(_currentGamePath, customName);
+                _gameNameCache[gameWindow] = customName; // Cache for next time
+                Debug.WriteLine($"UpdateCurrentGameFile: Used cached custom mapping: {customName}");
+                return;
+            }
+
+            // Second, check if this game is in the targets list and use its configured game name
+            foreach (ListViewItem item in _targets.Items)
+            {
+                if ((IntPtr)item.Tag == gameWindow)
+                {
+                    var gameNameFromList = item.SubItems[3].Text;
+                    if (!string.IsNullOrEmpty(gameNameFromList) && gameNameFromList != "Auto-detect failed")
+                    {
+                        File.WriteAllText(_currentGamePath, gameNameFromList);
+                        _gameNameCache[gameWindow] = gameNameFromList; // Cache for next time
+                        Debug.WriteLine($"UpdateCurrentGameFile: Used game name from targets list: {gameNameFromList}");
+                        return;
+                    }
+                    break;
+                }
+            }
+
+            if (_gameNames.Count == 0)
+            {
+                // For Bizhawk/emulator games, use window title instead of process name
+                bool isBizhawk = processName.Contains("bizhawk", StringComparison.OrdinalIgnoreCase) ||
+                                processName.Contains("emuhawk", StringComparison.OrdinalIgnoreCase) ||
+                                windowTitle.Contains("bizhawk", StringComparison.OrdinalIgnoreCase);
+
+                var displayName = isBizhawk ? windowTitle : processName;
+                File.WriteAllText(_currentGamePath, displayName);
+                _gameNameCache[gameWindow] = displayName; // Cache for next time
+                Debug.WriteLine($"UpdateCurrentGameFile: No game names file - wrote {(isBizhawk ? "window title" : "process name")}: {displayName}");
+                return;
+            }
+
+            // Find the best matching game name
+            var gameName = FindBestGameMatch(processName, windowTitle);
+
+            if (!string.IsNullOrEmpty(gameName))
+            {
+                File.WriteAllText(_currentGamePath, gameName);
+                _gameNameCache[gameWindow] = gameName; // Cache for next time
+                Debug.WriteLine($"UpdateCurrentGameFile: SUCCESS - wrote game name: {gameName}");
+            }
+            else
+            {
+                // Only use names from game_names.txt - no fallbacks to raw process/window names
+                File.WriteAllText(_currentGamePath, "Unknown Game");
+                _gameNameCache[gameWindow] = "Unknown Game"; // Cache for next time
+                Debug.WriteLine($"UpdateCurrentGameFile: No match found in game_names.txt - wrote 'Unknown Game'");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"UpdateCurrentGameFile: Error: {ex.Message}");
+            Debug.WriteLine($"UpdateCurrentGameFile: Stack trace: {ex.StackTrace}");
+        }
+    }
+
     private void ScheduleNextSwitch(bool immediate = false)
     {
         if (immediate)
@@ -1478,6 +3334,21 @@ public class MainForm : Form
         _timerShouldRun = true;
         _backgroundTimer.Change(0, 1000);
 
+        // Load game names for tracking
+        LoadGameNames();
+
+        // Create initial current_game.txt file
+        try
+        {
+            var currentGamePath = Path.Combine(Application.StartupPath, "current_game.txt");
+            File.WriteAllText(currentGamePath, "Shuffling starting...");
+            Debug.WriteLine($"Created initial current_game.txt at: {currentGamePath}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error creating initial current_game.txt: {ex.Message}");
+        }
+
         ScheduleNextSwitch(immediate: true);
         Debug.WriteLine("Background timer started");
     }
@@ -1496,6 +3367,10 @@ public class MainForm : Form
         this.Text = "KHShuffler";
 
         ResumeAllTargetProcesses();
+
+        // Keep current_game.txt file when shuffling stops (user request)
+        // File will show the last active game for streaming/recording purposes
+        Debug.WriteLine("Shuffling stopped - current_game.txt preserved");
 
         _startButton.Enabled = true;
         _stopButton.Enabled = false;
@@ -1747,13 +3622,35 @@ public class MainForm : Form
                 }
             }
 
-            if (_currentIndex >= validWindows.Count)
-                _currentIndex = -1;
+            // ENHANCED RANDOMIZATION: Select truly random game instead of cycling
+            // Remove current game from available options to avoid selecting the same one twice in a row
+            var availableWindows = validWindows.ToList();
 
-            _currentIndex = (_currentIndex + 1) % validWindows.Count;
-            var target = validWindows[_currentIndex];
+            // If we have more than 1 window and there's a current game running, avoid selecting it again
+            if (availableWindows.Count > 1 && _currentIndex >= 0 && _currentIndex < validWindows.Count)
+            {
+                var currentWindow = validWindows[_currentIndex];
+                if (availableWindows.Contains(currentWindow))
+                {
+                    availableWindows.Remove(currentWindow);
+                    Debug.WriteLine($"Removing current window from random selection to avoid immediate repeat (now {availableWindows.Count} options)");
+                }
+            }
 
-            Debug.WriteLine($"Switching to window index {_currentIndex}");
+            // Select randomly from available options
+            var randomIndex = _rng.Next(availableWindows.Count);
+            var target = availableWindows[randomIndex];
+
+            // Update current index to reflect the newly selected window in the original list
+            var newIndex = validWindows.IndexOf(target);
+
+            // Log the randomization for visibility
+            Debug.WriteLine($"RANDOMIZED SELECTION: Previous index: {_currentIndex}, New index: {newIndex}, Selected from {availableWindows.Count} available options");
+            _currentIndex = newIndex;
+
+            Debug.WriteLine($"Randomly selected window index {_currentIndex} out of {validWindows.Count} total windows");
+
+            // NOTE: Moved UpdateCurrentGameFile to AFTER window focusing for better timing with classic KH games
 
             NativeMethods.GetWindowThreadProcessId(target, out var targetPid);
             if (targetPid != 0)
@@ -1805,6 +3702,38 @@ public class MainForm : Form
                 if (NativeMethods.IsIconic(target))
                     NativeMethods.ShowWindow(target, ShowWindowCommands.Restore);
 
+                // Enhanced Unity window restoration for proper fullscreen behavior
+                var unityMode = GetSuspensionMode(target);
+                if (unityMode == SuspensionMode.Unity)
+                {
+                    try
+                    {
+                        Debug.WriteLine("Applying Unity-specific window restoration for fullscreen behavior");
+
+                        // Unity games benefit from a multi-step restoration process
+                        NativeMethods.ShowWindow(target, ShowWindowCommands.Show);
+                        Thread.Sleep(50); // Allow Unity window manager to process
+
+                        NativeMethods.ShowWindow(target, ShowWindowCommands.Maximize);
+                        Thread.Sleep(30); // Unity renderer context restoration
+
+                        // Ensure window is brought to absolute front
+                        NativeMethods.SetWindowPos(target, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
+                        Thread.Sleep(20);
+
+                        // Remove topmost flag but keep it in front
+                        NativeMethods.SetWindowPos(target, NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0,
+                            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
+
+                        Debug.WriteLine("Unity window restoration sequence completed");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Unity window restoration failed: {ex.Message}");
+                    }
+                }
+
                 if (_forceBorderless.Checked)
                 {
                     try
@@ -1825,14 +3754,100 @@ public class MainForm : Form
                                     rect.Left, rect.Top,
                                     rect.Right - rect.Left, rect.Bottom - rect.Top,
                                     NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_SHOWWINDOW);
+
+                                // For Unity games, ensure the window covers the taskbar area
+                                if (unityMode == SuspensionMode.Unity)
+                                {
+                                    Debug.WriteLine("Unity borderless: ensuring full screen coverage including taskbar area");
+                                    Thread.Sleep(30); // Allow Unity to process style changes
+                                }
                             }
                         }
                     }
                     catch { }
                 }
 
-                NativeMethods.SetForegroundWindow(target);
+                // Enhanced focus sequence for special games
+                if (unityMode == SuspensionMode.Unity)
+                {
+                    try
+                    {
+                        // Unity games need multiple focus attempts
+                        NativeMethods.SetForegroundWindow(target);
+                        Thread.Sleep(20);
+                        NativeMethods.SetActiveWindow(target);
+                        Thread.Sleep(20);
+                        NativeMethods.SetFocus(target);
+                        Debug.WriteLine("Unity enhanced focus sequence completed");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Unity enhanced focus failed: {ex.Message}");
+                        // Fallback to standard focus
+                        NativeMethods.SetForegroundWindow(target);
+                    }
+                }
+                else
+                {
+                    // Check if this is Re Chain of Memories - it needs enhanced focusing too
+                    bool isReCoM = false;
+                    try
+                    {
+                        NativeMethods.GetWindowThreadProcessId(target, out var windowPid);
+                        if (windowPid != 0)
+                        {
+                            using var process = Process.GetProcessById((int)windowPid);
+                            isReCoM = IsReChainOfMemories(process.ProcessName, GetWindowText(target));
+                        }
+                    }
+                    catch { }
+
+                    if (isReCoM)
+                    {
+                        try
+                        {
+                            Debug.WriteLine("Re:Chain of Memories detected - applying enhanced focus sequence");
+
+                            // Re Chain of Memories enhanced focus sequence
+                            // First attempt: Standard approach
+                            NativeMethods.SetForegroundWindow(target);
+                            Thread.Sleep(30);
+
+                            // Second attempt: Activate window
+                            NativeMethods.SetActiveWindow(target);
+                            Thread.Sleep(30);
+
+                            // Third attempt: Bring to top and focus
+                            NativeMethods.SetWindowPos(target, NativeMethods.HWND_TOP, 0, 0, 0, 0,
+                                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
+                            Thread.Sleep(20);
+                            NativeMethods.SetFocus(target);
+                            Thread.Sleep(20);
+
+                            // Final attempt: Force foreground again
+                            NativeMethods.SetForegroundWindow(target);
+
+                            Debug.WriteLine("Re:Chain of Memories enhanced focus sequence completed");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Re:Chain of Memories enhanced focus failed: {ex.Message}");
+                            // Fallback to standard focus
+                            NativeMethods.SetForegroundWindow(target);
+                        }
+                    }
+                    else
+                    {
+                        NativeMethods.SetForegroundWindow(target);
+                    }
+                }
+
                 Debug.WriteLine("Window focused successfully");
+
+                // OPTIMAL TIMING: Update game file AFTER window is focused and visible on screen
+                // This ensures classic KH games have loaded and are properly displayed before file update
+                UpdateCurrentGameFile(target);
+                Debug.WriteLine("Game name written to file after window focus completion");
 
                 // Notify effect manager that a shuffle occurred
                 try

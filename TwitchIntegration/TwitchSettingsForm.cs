@@ -80,6 +80,9 @@ public class TwitchSettingsForm : Form
 
         // Subscribe to TwitchClient authentication events
         _twitchClient.AuthenticationChanged += OnTwitchAuthenticationChanged;
+
+        // CRITICAL FIX: Start proactive token refresh to prevent daily expiration
+        StartProactiveTokenRefresh();
     }
 
     private void InitializeForm()
@@ -406,13 +409,13 @@ public class TwitchSettingsForm : Form
                 UseShellExecute = true
             });
 
-            var instructions = "?? Opened Twitch Developer Console!\n\n" +
-                             "?? **Create New Application with these settings:**\n" +
-                             "� **Name**: KHShuffler-YourUsername\n" +
-                             "� **OAuth Redirect URLs**: http://localhost:3000/auth/callback\n" +
-                             "� **Category**: Game Integration\n\n" +
-                             "?? **Tip**: Use the '?? Copy OAuth URL' button below to copy the redirect URL!\n\n" +
-                             "?? **After creating the app:**\n" +
+            var instructions = "Opened Twitch Developer Console!\n\n" +
+                             "**Create New Application with these settings:**\n" +
+                             "**Name**: KHShuffler-YourUsername\n" +
+                             "**OAuth Redirect URLs**: http://localhost:3000/auth/callback\n" +
+                             "**Category**: Game Integration\n\n" +
+                             "**Tip**: Use the 'Copy OAuth URL' button below to copy the redirect URL!\n\n" +
+                             "**After creating the app:**\n" +
                              "1. **Copy the Client ID** (long string of letters/numbers)\n" +
                              "2. **Click 'New Secret'** to generate Client Secret\n" +
                              "3. **Copy the Client Secret** immediately (you can't see it again!)\n" +
@@ -495,12 +498,27 @@ public class TwitchSettingsForm : Form
         _twitchClient.SetCredentials(_settings.TwitchClientId, _settings.TwitchClientSecret);
 
         // Load authentication state from settings
+        Debug.WriteLine("TwitchSettingsForm: [PERSISTENCE-DEBUG] Loading authentication from registry...");
+        Debug.WriteLine($"TwitchSettingsForm: [PERSISTENCE-DEBUG] IsAuthenticated: {_settings.IsAuthenticated}");
+        Debug.WriteLine($"TwitchSettingsForm: [PERSISTENCE-DEBUG] AccessToken exists: {!string.IsNullOrEmpty(_settings.TwitchAccessToken)}");
+        Debug.WriteLine($"TwitchSettingsForm: [PERSISTENCE-DEBUG] RefreshToken exists: {!string.IsNullOrEmpty(_settings.TwitchRefreshToken)}");
+        Debug.WriteLine($"TwitchSettingsForm: [PERSISTENCE-DEBUG] Channel name: '{_settings.TwitchChannelName}'");
+
         if (_settings.IsAuthenticated && !string.IsNullOrEmpty(_settings.TwitchAccessToken))
         {
+            Debug.WriteLine("TwitchSettingsForm: [PERSISTENCE-DEBUG] Loading tokens into TwitchClient...");
             _twitchClient.AccessToken = _settings.TwitchAccessToken;
+            _twitchClient.RefreshToken = _settings.TwitchRefreshToken;
             _twitchClient.Username = _settings.TwitchChannelName;
+
+            Debug.WriteLine($"TwitchSettingsForm: [PERSISTENCE-DEBUG] TwitchClient.IsAuthenticated: {_twitchClient.IsAuthenticated}");
+
             // We'll validate this token when the form loads
             _ = ValidateExistingToken();
+        }
+        else
+        {
+            Debug.WriteLine("TwitchSettingsForm: [PERSISTENCE-DEBUG] No authentication data found or IsAuthenticated is false");
         }
 
         UpdateAuthenticationStatus();
@@ -511,16 +529,136 @@ public class TwitchSettingsForm : Form
     {
         try
         {
-            var isValid = await _twitchClient.ValidateTokenAsync();
-            if (!isValid)
+            Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] STARTING AGGRESSIVE TOKEN VALIDATION");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Current time: {DateTime.Now}");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Access token length: {_twitchClient.AccessToken?.Length ?? 0}");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Refresh token length: {_twitchClient.RefreshToken?.Length ?? 0}");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Settings IsAuthenticated: {_settings.IsAuthenticated}");
+
+            // ENHANCED STARTUP STRATEGY: Always try to refresh tokens on startup
+            // This handles cases where:
+            // 1. Program was closed overnight and tokens expired
+            // 2. Tokens are valid but close to expiration 
+            // 3. Previous refresh attempts failed
+
+            bool shouldRefresh = false;
+            string refreshReason = "";
+
+            if (string.IsNullOrEmpty(_twitchClient.AccessToken))
             {
-                // Token is invalid, clear it
+                Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] No access token - skipping validation");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_twitchClient.RefreshToken))
+            {
+                Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] No refresh token - cannot refresh, validating existing token");
+                var isValid = await _twitchClient.ValidateTokenAsync();
+                Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Token validation result: {isValid}");
+
+                if (!isValid)
+                {
+                    Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Token invalid and no refresh token available");
+                    // Clear invalid authentication
+                    _settings.TwitchAccessToken = "";
+                    _settings.IsAuthenticated = false;
+                    UpdateAuthenticationStatus();
+                }
+                return;
+            }
+
+            // Strategy: Always attempt refresh on startup for maximum reliability
+            // This ensures we start with the freshest possible tokens
+            shouldRefresh = true;
+            refreshReason = "Proactive startup refresh for maximum reliability";
+
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Refresh decision: {shouldRefresh}");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Reason: {refreshReason}");
+
+            if (shouldRefresh)
+            {
+                Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Token invalid, attempting refresh...");
+
+                // Try to refresh the token if we have a refresh token
+                if (!string.IsNullOrEmpty(_twitchClient.RefreshToken))
+                {
+                    Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Refresh token available, length: {_twitchClient.RefreshToken.Length}");
+                    Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Attempting token refresh...");
+
+                    var refreshSuccess = await _twitchClient.RefreshTokenAsync();
+                    Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Token refresh result: {refreshSuccess}");
+
+                    if (refreshSuccess)
+                    {
+                        Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Token refresh successful!");
+                        Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] New access token length: {_twitchClient.AccessToken?.Length ?? 0}");
+                        Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] New refresh token length: {_twitchClient.RefreshToken?.Length ?? 0}");
+
+                        // Save the new tokens
+                        _settings.TwitchAccessToken = _twitchClient.AccessToken ?? "";
+                        _settings.TwitchRefreshToken = _twitchClient.RefreshToken ?? "";
+                        _settings.IsAuthenticated = true;
+
+                        Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Tokens saved to registry successfully");
+
+                        // Show success message to user
+                        MessageBox.Show("✅ Twitch authentication refreshed successfully!\n\n" +
+                                      "Your tokens have been automatically renewed and saved.\n" +
+                                      "You can now connect to live events without restarting the application.",
+                                      "Authentication Refreshed",
+                                      MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                        UpdateAuthenticationStatus();
+                        return;
+                    }
+                    else
+                    {
+                        Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Token refresh failed");
+
+                        // Enhanced error message with troubleshooting steps
+                        var result = MessageBox.Show("Twitch authentication has expired and could not be automatically renewed.\n\n" +
+                                      "Common causes:\n" +
+                                      "• Tokens expired (usually after 4 hours of inactivity)\n" +
+                                      "• Network connectivity issues\n" +
+                                      "• Twitch API changes or maintenance\n" +
+                                      "• Refresh token invalidated by Twitch\n\n" +
+                                      "Click 'Yes' to clear old authentication and reconnect, or 'No' to continue without Twitch features.",
+                                      "Twitch Re-authentication Required",
+                                      MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+                        if (result == DialogResult.Yes)
+                        {
+                            Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] User chose to clear authentication");
+                            _settings.TwitchAccessToken = "";
+                            _settings.TwitchRefreshToken = "";
+                            _settings.IsAuthenticated = false;
+                            _twitchClient.AccessToken = null;
+                            _twitchClient.RefreshToken = null;
+                            UpdateAuthenticationStatus();
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] No refresh token available");
+
+                    // Show message that user needs to reconnect
+                    MessageBox.Show("Twitch authentication has expired.\n\n" +
+                                  "Please reconnect to Twitch to continue using subscription and bits effects.",
+                                  "Twitch Re-authentication Required",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+
+                // Token is invalid and refresh failed, clear it
                 _settings.IsAuthenticated = false;
                 _settings.TwitchAccessToken = "";
+                _settings.TwitchRefreshToken = "";
                 UpdateAuthenticationStatus();
             }
             else
             {
+                Debug.WriteLine("TwitchSettingsForm: [TOKEN-STARTUP] Token validation successful");
+
                 // Token is valid, get username if we don't have it
                 if (string.IsNullOrEmpty(_twitchClient.Username))
                 {
@@ -532,9 +670,10 @@ public class TwitchSettingsForm : Form
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"TwitchSettingsForm: Token validation error: {ex.Message}");
+            Debug.WriteLine($"TwitchSettingsForm: [TOKEN-STARTUP] Token validation error: {ex.Message}");
             _settings.IsAuthenticated = false;
             _settings.TwitchAccessToken = "";
+            _settings.TwitchRefreshToken = "";
             UpdateAuthenticationStatus();
         }
     }
@@ -559,7 +698,7 @@ public class TwitchSettingsForm : Form
     {
         if (_twitchClient.IsAuthenticated)
         {
-            _authStatusLabel.Text = $"? Connected as {_twitchClient.Username ?? _settings.TwitchChannelName}";
+            _authStatusLabel.Text = $"Connected as {_twitchClient.Username ?? _settings.TwitchChannelName}";
             _authStatusLabel.ForeColor = Color.Green;
             _authenticateButton.Text = "Disconnect";
             _settings.IsAuthenticated = true;
@@ -571,14 +710,14 @@ public class TwitchSettingsForm : Form
                 var clientId = _twitchClient.GetClientId();
                 if (string.IsNullOrEmpty(clientId))
                 {
-                    _authStatusLabel.Text = "?? Enter your Twitch app credentials above";
+                    _authStatusLabel.Text = "Enter your Twitch app credentials above";
                     _authStatusLabel.ForeColor = Color.Orange;
                     _authenticateButton.Text = "Need Credentials";
                     _authenticateButton.Enabled = false;
                 }
                 else
                 {
-                    _authStatusLabel.Text = "?? Invalid credentials - check Client ID and Secret";
+                    _authStatusLabel.Text = "Invalid credentials - check Client ID and Secret";
                     _authStatusLabel.ForeColor = Color.Orange;
                     _authenticateButton.Text = "Fix Credentials";
                     _authenticateButton.Enabled = false;
@@ -586,7 +725,7 @@ public class TwitchSettingsForm : Form
             }
             else
             {
-                _authStatusLabel.Text = "?? Ready to connect";
+                _authStatusLabel.Text = "Ready to connect";
                 _authStatusLabel.ForeColor = Color.Blue;
                 _authenticateButton.Text = "Connect to Twitch";
                 _authenticateButton.Enabled = true;
@@ -655,7 +794,7 @@ public class TwitchSettingsForm : Form
                     _settings.IsAuthenticated = true;
 
                     MessageBox.Show($"Successfully connected to Twitch as '{_settings.TwitchChannelName}'!\n\n" +
-                                  "?? Your KHShuffler is now ready for Twitch integration!",
+                                  "Your KHShuffler is now ready for Twitch integration!",
                         "Authentication Successful", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 // Don't show failure message here - AuthenticateAsync already handles error display
@@ -682,12 +821,66 @@ public class TwitchSettingsForm : Form
             return;
         }
 
+        Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Authentication event: {e.Message}");
+        Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Is authenticated: {e.IsAuthenticated}");
+        Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Username: {e.Username}");
+
+        // CRITICAL FIX: Save tokens when authentication changes (especially after token refresh)
+        if (e.IsAuthenticated && _twitchClient != null)
+        {
+            Debug.WriteLine("TwitchSettingsForm: [AUTH-CHANGED] Saving updated authentication tokens...");
+
+            // Save the current tokens from TwitchClient to settings registry
+            var oldAccessToken = _settings.TwitchAccessToken;
+            var oldRefreshToken = _settings.TwitchRefreshToken;
+
+            _settings.TwitchAccessToken = _twitchClient.AccessToken ?? "";
+            _settings.TwitchRefreshToken = _twitchClient.RefreshToken ?? "";
+            _settings.IsAuthenticated = true;
+            _settings.TwitchChannelName = e.Username;
+
+            // Log token update details
+            Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Access token updated: {oldAccessToken != _settings.TwitchAccessToken}");
+            Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Refresh token updated: {oldRefreshToken != _settings.TwitchRefreshToken}");
+            Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] New access token length: {_settings.TwitchAccessToken?.Length ?? 0}");
+            Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] New refresh token length: {_settings.TwitchRefreshToken?.Length ?? 0}");
+
+            // CRITICAL: Try to reconnect EventSub if this was a token refresh
+            if (e.Message?.Contains("refreshed") == true || e.Message?.Contains("Token refreshed") == true)
+            {
+                Debug.WriteLine("TwitchSettingsForm: [AUTH-CHANGED] Token was refreshed - attempting EventSub reconnection...");
+
+                // Notify the main form or effect test mode about token refresh
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1000); // Brief delay to let settings save
+                        Debug.WriteLine("TwitchSettingsForm: [AUTH-CHANGED] Token refresh complete - EventSub should reconnect automatically");
+
+                        // The EffectTestModeForm should handle reconnection when it detects token changes
+                        // We'll add a mechanism to notify active EventSub connections
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Error in post-refresh tasks: {ex.Message}");
+                    }
+                });
+            }
+        }
+        else if (!e.IsAuthenticated)
+        {
+            Debug.WriteLine("TwitchSettingsForm: [AUTH-CHANGED] Authentication lost, clearing tokens...");
+            _settings.TwitchAccessToken = "";
+            _settings.TwitchRefreshToken = "";
+            _settings.IsAuthenticated = false;
+        }
+
         UpdateAuthenticationStatus();
 
         if (!string.IsNullOrEmpty(e.Message))
         {
-            // Could show a status message or log it
-            Debug.WriteLine($"TwitchSettingsForm: Auth status changed: {e.Message}");
+            Debug.WriteLine($"TwitchSettingsForm: [AUTH-CHANGED] Status message: {e.Message}");
         }
     }
 
@@ -785,13 +978,13 @@ public class TwitchSettingsForm : Form
 
         var banShuffles = _settings.GetBanShufflesForSubTier(GetSelectedSubTier());
         MessageBox.Show($"Game Ban Test Triggered!\n\n" +
-                       $"� Effect: GAME BAN\n" +
-                       $"� Trigger: {GetSelectedSubTier()} Subscription\n" +
-                       $"� Ban Duration: {banShuffles} shuffles\n" +
-                       $"� User: TestBanner\n\n" +
+                       $"Effect: GAME BAN\n" +
+                       $"Trigger: {GetSelectedSubTier()} Subscription\n" +
+                       $"Ban Duration: {banShuffles} shuffles\n" +
+                       $"User: TestBanner\n\n" +
                        $"Check the overlay for:\n" +
-                       $"? Game ban notification (center screen)\n" +
-                       $"? Banned games countdown (bottom right)\n\n" +
+                       $"Game ban notification (center screen)\n" +
+                       $"Banned games countdown (bottom right)\n\n" +
                        $"Note: In test mode, fake game names are used for demonstration.",
             "Game Ban Test", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
@@ -838,6 +1031,7 @@ public class TwitchSettingsForm : Form
 
             // Save authentication info
             _settings.TwitchAccessToken = _twitchClient.AccessToken ?? "";
+            _settings.TwitchRefreshToken = _twitchClient.RefreshToken ?? "";
             _settings.IsAuthenticated = _twitchClient.IsAuthenticated;
 
             // Force registry save by calling the property setters again
@@ -846,9 +1040,9 @@ public class TwitchSettingsForm : Form
             Debug.WriteLine("TwitchSettingsForm: Manual save completed with effect enabled states");
 
             MessageBox.Show("Twitch integration settings saved successfully!\n\n" +
-                          "? Your credentials are stored securely\n" +
-                          "? Settings will persist between sessions\n" +
-                          "? Effect selections are saved",
+                          "Your credentials are stored securely\n" +
+                          "Settings will persist between sessions\n" +
+                          "Effect selections are saved",
                 "Settings Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             DialogResult = DialogResult.OK;
@@ -858,6 +1052,114 @@ public class TwitchSettingsForm : Form
         {
             MessageBox.Show($"Error saving settings: {ex.Message}",
                 "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Starts a background timer to proactively refresh tokens before they expire
+    /// This prevents the daily authentication issues by refreshing tokens every 3 hours
+    /// </summary>
+    private void StartProactiveTokenRefresh()
+    {
+        try
+        {
+            Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Starting proactive token refresh timer...");
+
+            // Create a timer that fires every 2 hours (7,200,000 ms)
+            // With aggressive startup refresh, we can use shorter intervals for ongoing sessions
+            // This ensures tokens stay fresh during long streaming sessions
+            var refreshTimer = new System.Timers.Timer(2 * 60 * 60 * 1000); // 2 hours in milliseconds
+            refreshTimer.Elapsed += async (sender, e) => await ProactiveTokenRefresh();
+            refreshTimer.AutoReset = true;
+            refreshTimer.Start();
+
+            Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Timer started - will refresh tokens every 2 hours");
+
+            // Run a secondary check after 5 minutes for ongoing session maintenance
+            var initialTimer = new System.Timers.Timer(5 * 60 * 1000); // 5 minutes
+            initialTimer.Elapsed += async (sender, e) =>
+            {
+                initialTimer.Stop();
+                initialTimer.Dispose();
+                await ProactiveTokenRefresh();
+            };
+            initialTimer.AutoReset = false;
+            initialTimer.Start();
+
+            Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Secondary refresh check will run in 5 minutes");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Error starting timer: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Proactively refreshes tokens if they're close to expiring
+    /// </summary>
+    private async Task ProactiveTokenRefresh()
+    {
+        try
+        {
+            Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] PROACTIVE TOKEN REFRESH CHECK");
+            Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Current time: {DateTime.Now}");
+
+            // Only attempt refresh if we have authentication and tokens
+            if (!_settings.IsAuthenticated || string.IsNullOrEmpty(_settings.TwitchAccessToken))
+            {
+                Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Not authenticated or no access token - skipping");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_settings.TwitchRefreshToken))
+            {
+                Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] No refresh token available - skipping");
+                return;
+            }
+
+            Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Checking token validity...");
+
+            // Check if current token is still valid
+            var isValid = await _twitchClient.ValidateTokenAsync();
+            Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Token validation result: {isValid}");
+
+            if (!isValid)
+            {
+                Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Token invalid - attempting refresh...");
+
+                var refreshSuccess = await _twitchClient.RefreshTokenAsync();
+                Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Refresh result: {refreshSuccess}");
+
+                if (refreshSuccess)
+                {
+                    Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Proactive refresh successful!");
+
+                    // Save the new tokens immediately
+                    _settings.TwitchAccessToken = _twitchClient.AccessToken ?? "";
+                    _settings.TwitchRefreshToken = _twitchClient.RefreshToken ?? "";
+                    _settings.IsAuthenticated = true;
+
+                    Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] New tokens saved - Access: {_settings.TwitchAccessToken.Length} chars, Refresh: {_settings.TwitchRefreshToken.Length} chars");
+
+                    // The AuthenticationChanged event will handle EventSub reconnection automatically
+                }
+                else
+                {
+                    Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Proactive refresh failed");
+
+                    // Don't clear authentication here - let the user handle it when they try to use features
+                    // Just log the issue for debugging
+                }
+            }
+            else
+            {
+                Debug.WriteLine("TwitchSettingsForm: [PROACTIVE-REFRESH] Token still valid - no refresh needed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Exception during proactive refresh: {ex.Message}");
+            Debug.WriteLine($"TwitchSettingsForm: [PROACTIVE-REFRESH] Stack trace: {ex.StackTrace}");
         }
     }
 

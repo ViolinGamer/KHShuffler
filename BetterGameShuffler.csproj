@@ -4,16 +4,21 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    
+    <!-- Output Configuration -->
+    <AssemblyName>KHShuffler</AssemblyName>
     
     <!-- Release Configuration -->
-    <AssemblyTitle>Better Game Shuffler</AssemblyTitle>
-    <AssemblyDescription>Intelligent multi-game shuffler with engine-specific suspension techniques</AssemblyDescription>
-    <AssemblyCompany>Game Shuffler Project</AssemblyCompany>
-    <AssemblyProduct>Better Game Shuffler</AssemblyProduct>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyTitle>KH Shuffler</AssemblyTitle>
+    <AssemblyDescription>Intelligent Kingdom Hearts game shuffler with engine-specific suspension techniques for UE4, Unity, and Square Enix engines</AssemblyDescription>
+    <AssemblyCompany>KH Shuffler Project</AssemblyCompany>
+    <AssemblyProduct>KH Shuffler</AssemblyProduct>
+    <AssemblyVersion>2.5.0.0</AssemblyVersion>
+    <FileVersion>2.5.0.0</FileVersion>
     <Copyright>2025</Copyright>
     
     <!-- Publish Configuration -->
@@ -24,5 +29,19 @@
     <PublishTrimmed>false</PublishTrimmed>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FFMpegCore" Version="5.2.0" />
+    <PackageReference Include="LibVLCSharp.WPF" Version="3.9.4" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio.Vorbis" Version="1.5.0" />
+    <PackageReference Include="OpenCvSharp4" Version="4.9.0.20240103" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.9.0.20240103" />
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
+    <PackageReference Include="SharpDX.DXGI" Version="4.2.0" />
+    <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
+  </ItemGroup>
 
 </Project>

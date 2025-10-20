@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Windows.Forms;
 using Microsoft.Win32;
 using BetterGameShuffler; // Add this to access Settings class
 
@@ -12,8 +13,18 @@ public class TwitchEffectSettings
 {
     private const string REGISTRY_KEY = @"SOFTWARE\BetterGameShuffler";
 
-    public bool StackEffects { get; set; } = true;
-    public bool QueueEffects { get; set; } = false;
+    // Stack/Queue effects settings with registry persistence (using main Settings class)
+    public bool StackEffects
+    {
+        get => GetRegistryBool("StackEffects", true);
+        set => SetRegistryValue("StackEffects", value);
+    }
+
+    public bool QueueEffects
+    {
+        get => GetRegistryBool("QueueEffects", false);
+        set => SetRegistryValue("QueueEffects", value);
+    }
     public int DefaultEffectDurationSeconds { get; set; } = 30;
     public int MinBitsForEffect { get; set; } = 50;
 
@@ -65,6 +76,12 @@ public class TwitchEffectSettings
     {
         get => GetRegistryString("TwitchAccessToken", "");
         set => SetRegistryValue("TwitchAccessToken", value);
+    }
+
+    public string TwitchRefreshToken
+    {
+        get => GetRegistryString("TwitchRefreshToken", "");
+        set => SetRegistryValue("TwitchRefreshToken", value);
     }
 
     public string TwitchClientId
@@ -134,14 +151,26 @@ public class TwitchEffectSettings
     {
         get
         {
-            var value = Settings.ImagesDirectory;
+            var value = GetRegistryString("TwitchEffects_ImagesDirectory", "images");
+
+            // SECURITY FIX: Prevent system directory access
+            if (value.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("system32"))
+            {
+                Debug.WriteLine($"TwitchEffectSettings.ImagesDirectory SECURITY: Blocked system path '{value}', using 'images' instead");
+                value = "images";
+                // Reset the registry to safe value
+                SetRegistryValue("TwitchEffects_ImagesDirectory", "images");
+            }
+
             Debug.WriteLine($"TwitchEffectSettings.ImagesDirectory GET: '{value}'");
             return value;
         }
         set
         {
             Debug.WriteLine($"TwitchEffectSettings.ImagesDirectory SET: '{value}'");
-            Settings.ImagesDirectory = value;
+            SetRegistryValue("TwitchEffects_ImagesDirectory", value ?? "images");
         }
     }
 
@@ -149,14 +178,26 @@ public class TwitchEffectSettings
     {
         get
         {
-            var value = Settings.SoundsDirectory;
+            var value = GetRegistryString("TwitchEffects_SoundsDirectory", "sounds");
+
+            // SECURITY FIX: Prevent system directory access
+            if (value.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("system32"))
+            {
+                Debug.WriteLine($"TwitchEffectSettings.SoundsDirectory SECURITY: Blocked system path '{value}', using 'sounds' instead");
+                value = "sounds";
+                // Reset the registry to safe value
+                SetRegistryValue("TwitchEffects_SoundsDirectory", "sounds");
+            }
+
             Debug.WriteLine($"TwitchEffectSettings.SoundsDirectory GET: '{value}'");
             return value;
         }
         set
         {
             Debug.WriteLine($"TwitchEffectSettings.SoundsDirectory SET: '{value}'");
-            Settings.SoundsDirectory = value;
+            SetRegistryValue("TwitchEffects_SoundsDirectory", value ?? "sounds");
         }
     }
 
@@ -164,14 +205,80 @@ public class TwitchEffectSettings
     {
         get
         {
-            var value = Settings.HudDirectory;
+            var value = GetRegistryString("TwitchEffects_HudDirectory", "hud");
+
+            // SECURITY FIX: Prevent system directory access
+            if (value.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("system32"))
+            {
+                Debug.WriteLine($"TwitchEffectSettings.HudDirectory SECURITY: Blocked system path '{value}', using 'hud' instead");
+                value = "hud";
+                // Reset the registry to safe value
+                SetRegistryValue("TwitchEffects_HudDirectory", "hud");
+            }
+
             Debug.WriteLine($"TwitchEffectSettings.HudDirectory GET: '{value}'");
             return value;
         }
         set
         {
             Debug.WriteLine($"TwitchEffectSettings.HudDirectory SET: '{value}'");
-            Settings.HudDirectory = value;
+            SetRegistryValue("TwitchEffects_HudDirectory", value ?? "hud");
+        }
+    }
+
+    public string GreenScreenDirectory
+    {
+        get
+        {
+            var value = GetRegistryString("TwitchEffects_GreenScreenDirectory", "greenscreen");
+
+            // SECURITY FIX: Prevent system directory access
+            if (value.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("system32"))
+            {
+                Debug.WriteLine($"TwitchEffectSettings.GreenScreenDirectory SECURITY: Blocked system path '{value}', using 'greenscreen' instead");
+                value = "greenscreen";
+                // Reset the registry to safe value
+                SetRegistryValue("TwitchEffects_GreenScreenDirectory", "greenscreen");
+            }
+
+            Debug.WriteLine($"TwitchEffectSettings.GreenScreenDirectory GET: '{value}'");
+            return value;
+        }
+        set
+        {
+            Debug.WriteLine($"TwitchEffectSettings.GreenScreenDirectory SET: '{value}'");
+            SetRegistryValue("TwitchEffects_GreenScreenDirectory", value ?? "greenscreen");
+        }
+    }
+
+    public string BlurDirectory
+    {
+        get
+        {
+            var value = GetRegistryString("TwitchEffects_BlurDirectory", "blur");
+
+            // SECURITY FIX: Prevent system directory access
+            if (value.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("system32"))
+            {
+                Debug.WriteLine($"TwitchEffectSettings.BlurDirectory SECURITY: Blocked system path '{value}', using 'blur' instead");
+                value = "blur";
+                // Reset the registry to safe value
+                SetRegistryValue("TwitchEffects_BlurDirectory", "blur");
+            }
+
+            Debug.WriteLine($"TwitchEffectSettings.BlurDirectory GET: '{value}'");
+            return value;
+        }
+        set
+        {
+            Debug.WriteLine($"TwitchEffectSettings.BlurDirectory SET: '{value}'");
+            SetRegistryValue("TwitchEffects_BlurDirectory", value ?? "blur");
         }
     }
 
@@ -256,6 +363,16 @@ public class TwitchEffectSettings
                 BitsRequired = 150,
                 SubsRequired = 2,
                 Weight = 0.8
+            },
+            [TwitchEffectType.GreenScreen] = new()
+            {
+                Type = TwitchEffectType.GreenScreen,
+                Name = "GREEN SCREEN",
+                Duration = TimeSpan.FromSeconds(25),
+                Enabled = true,
+                BitsRequired = 200,
+                SubsRequired = 3,
+                Weight = 1.0
             }
         };
     }
@@ -363,15 +480,59 @@ public class TwitchEffectSettings
     public string GetFullImagesPath() => Path.GetFullPath(ImagesDirectory);
     public string GetFullSoundsPath() => Path.GetFullPath(SoundsDirectory);
     public string GetFullHudPath() => Path.GetFullPath(HudDirectory);
+    public string GetFullGreenScreenPath() => Path.GetFullPath(GreenScreenDirectory);
 
     public void EnsureDirectoriesExist()
     {
-        var directories = new[] { ImagesDirectory, SoundsDirectory, HudDirectory };
+        var directories = new[] { ImagesDirectory, SoundsDirectory, HudDirectory, GreenScreenDirectory };
         foreach (var dir in directories)
         {
-            if (!Directory.Exists(dir))
+            try
             {
-                Directory.CreateDirectory(dir);
+                // SECURITY: Additional protection against system directories
+                if (string.IsNullOrEmpty(dir) ||
+                    dir.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                    dir.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                    dir.Contains("system32"))
+                {
+                    Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: SECURITY - Blocked dangerous directory '{dir}'");
+                    continue; // Skip creating this directory
+                }
+
+                if (!Directory.Exists(dir))
+                {
+                    Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: Creating directory '{dir}'");
+                    Directory.CreateDirectory(dir);
+                    Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: Successfully created '{dir}'");
+                }
+                else
+                {
+                    Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: Directory '{dir}' already exists");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: ERROR with directory '{dir}': {ex.Message}");
+
+                // If this was a system directory causing issues, show critical error and exit
+                if (dir != null && (dir.StartsWith("C:\\WINDOWS", StringComparison.OrdinalIgnoreCase) ||
+                                  dir.StartsWith("C:\\Windows", StringComparison.OrdinalIgnoreCase) ||
+                                  dir.Contains("system32")))
+                {
+                    Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: CRITICAL - System directory access blocked: {dir}");
+                    MessageBox.Show($"Critical Error: Registry corruption detected!\n\n" +
+                                  $"The application attempted to access a Windows system directory:\n" +
+                                  $"'{dir}'\n\n" +
+                                  $"This has been blocked for security. The application will close and " +
+                                  $"reset to safe defaults on next startup.",
+                                  "Security Protection - Registry Corruption",
+                                  MessageBoxButtons.OK,
+                                  MessageBoxIcon.Error);
+                    Environment.Exit(1);
+                }
+
+                // For other directories, just log and continue
+                Debug.WriteLine($"TwitchEffectSettings.EnsureDirectoriesExist: Continuing despite error with '{dir}'");
             }
         }
     }
@@ -666,6 +827,7 @@ public class TwitchEffectSettings
         var tempClientId = TwitchClientId;
         var tempClientSecret = TwitchClientSecret;
         var tempAccessToken = TwitchAccessToken;
+        var tempRefreshToken = TwitchRefreshToken;
         var tempAuthenticated = IsAuthenticated;
 
         var tempTier1 = Tier1SubDuration;
@@ -689,6 +851,7 @@ public class TwitchEffectSettings
         TwitchClientId = tempClientId;
         TwitchClientSecret = tempClientSecret;
         TwitchAccessToken = tempAccessToken;
+        TwitchRefreshToken = tempRefreshToken;
         IsAuthenticated = tempAuthenticated;
 
         Tier1SubDuration = tempTier1;
@@ -761,7 +924,8 @@ public enum TwitchEffectType
     ColorFilter,
     RandomSound,
     StaticHUD,
-    MirrorMode
+    MirrorMode,
+    GreenScreen
 }
 
 public enum SubTier

@@ -21,6 +21,11 @@ public class AudioPlayer : IDisposable
     private static bool _opusWarningShown = false;
 
     /// <summary>
+    /// Event fired when audio playback completes naturally (not when stopped manually)
+    /// </summary>
+    public event EventHandler? PlaybackCompleted;
+
+    /// <summary>
     /// Plays an audio file asynchronously. Supports WAV, MP3, and OGG Vorbis formats.
     /// </summary>
     /// <param name="filePath">Path to the audio file</param>
@@ -49,15 +54,15 @@ public class AudioPlayer : IDisposable
                 case ".wav":
                     await PlayWavFile(filePath);
                     break;
-                
+
                 case ".mp3":
                     await PlayMp3File(filePath);
                     break;
-                
+
                 case ".ogg":
                     await PlayOggFile(filePath);
                     break;
-                
+
                 default:
                     Debug.WriteLine($"AudioPlayer: Unsupported audio format: {extension}");
                     break;
@@ -71,7 +76,7 @@ public class AudioPlayer : IDisposable
     }
 
     /// <summary>
-    /// Plays a WAV file using the built-in SoundPlayer for best compatibility
+    /// Plays a WAV file using NAudio for consistency and completion events
     /// </summary>
     private async Task PlayWavFile(string filePath)
     {
@@ -79,13 +84,32 @@ public class AudioPlayer : IDisposable
         {
             try
             {
-                using var player = new SoundPlayer(filePath);
-                player.Play(); // Non-blocking play
+                _wavePlayer = new WaveOutEvent();
+                _audioFile = new AudioFileReader(filePath);
+
+                _wavePlayer.PlaybackStopped += (sender, e) =>
+                {
+                    Debug.WriteLine($"AudioPlayer: WAV playback finished: {Path.GetFileName(filePath)}");
+                    if (e.Exception != null)
+                    {
+                        Debug.WriteLine($"AudioPlayer: WAV playback error: {e.Exception.Message}");
+                    }
+                    else
+                    {
+                        // Fire completion event when playback ends naturally (no exception)
+                        PlaybackCompleted?.Invoke(this, EventArgs.Empty);
+                    }
+                };
+
+                _wavePlayer.Init(_audioFile);
+                _wavePlayer.Play();
+
                 Debug.WriteLine($"AudioPlayer: Successfully started WAV playback: {Path.GetFileName(filePath)}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"AudioPlayer: WAV playback failed: {ex.Message}");
+                DisposeCurrentPlayback();
             }
         });
     }
@@ -101,7 +125,7 @@ public class AudioPlayer : IDisposable
             {
                 _wavePlayer = new WaveOutEvent();
                 _audioFile = new AudioFileReader(filePath);
-                
+
                 _wavePlayer.PlaybackStopped += (sender, e) =>
                 {
                     Debug.WriteLine($"AudioPlayer: MP3 playback finished: {Path.GetFileName(filePath)}");
@@ -109,11 +133,16 @@ public class AudioPlayer : IDisposable
                     {
                         Debug.WriteLine($"AudioPlayer: MP3 playback error: {e.Exception.Message}");
                     }
+                    else
+                    {
+                        // Fire completion event when playback ends naturally (no exception)
+                        PlaybackCompleted?.Invoke(this, EventArgs.Empty);
+                    }
                 };
 
                 _wavePlayer.Init(_audioFile);
                 _wavePlayer.Play();
-                
+
                 Debug.WriteLine($"AudioPlayer: Successfully started MP3 playback: {Path.GetFileName(filePath)}");
             }
             catch (Exception ex)
@@ -135,17 +164,17 @@ public class AudioPlayer : IDisposable
             {
                 Debug.WriteLine($"AudioPlayer: Attempting to load OGG file: {Path.GetFileName(filePath)}");
                 Debug.WriteLine($"AudioPlayer: File size: {new FileInfo(filePath).Length} bytes");
-                
+
                 _wavePlayer = new WaveOutEvent();
                 _vorbisReader = new VorbisWaveReader(filePath);
-                
+
                 Debug.WriteLine($"AudioPlayer: OGG Vorbis file loaded successfully:");
                 Debug.WriteLine($"  Sample Rate: {_vorbisReader.WaveFormat.SampleRate} Hz");
                 Debug.WriteLine($"  Channels: {_vorbisReader.WaveFormat.Channels}");
                 Debug.WriteLine($"  Bits Per Sample: {_vorbisReader.WaveFormat.BitsPerSample}");
                 Debug.WriteLine($"  Total Length: {_vorbisReader.Length} bytes");
                 Debug.WriteLine($"  Duration: {_vorbisReader.TotalTime}");
-                
+
                 _wavePlayer.PlaybackStopped += (sender, e) =>
                 {
                     Debug.WriteLine($"AudioPlayer: OGG Vorbis playback finished: {Path.GetFileName(filePath)}");
@@ -153,17 +182,22 @@ public class AudioPlayer : IDisposable
                     {
                         Debug.WriteLine($"AudioPlayer: OGG Vorbis playback error: {e.Exception.Message}");
                     }
+                    else
+                    {
+                        // Fire completion event when playback ends naturally (no exception)
+                        PlaybackCompleted?.Invoke(this, EventArgs.Empty);
+                    }
                 };
 
                 _wavePlayer.Init(_vorbisReader);
                 _wavePlayer.Play();
-                
+
                 Debug.WriteLine($"AudioPlayer: Successfully started OGG Vorbis playback: {Path.GetFileName(filePath)}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"AudioPlayer: OGG playback failed: {ex.Message}");
-                
+
                 // Check if it's an OPUS file and provide helpful guidance
                 if (ex.Message.Contains("OPUS") || ex.Message.Contains("Could not initialize container"))
                 {
@@ -173,7 +207,7 @@ public class AudioPlayer : IDisposable
                 {
                     Debug.WriteLine($"AudioPlayer: OGG error details: {ex}");
                 }
-                
+
                 DisposeCurrentPlayback();
             }
         });
@@ -185,7 +219,7 @@ public class AudioPlayer : IDisposable
     private static void HandleOpusFile(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
-        
+
         Debug.WriteLine($"");
         Debug.WriteLine($"========================================");
         Debug.WriteLine($"OPUS FILE DETECTED: {fileName}");
@@ -215,7 +249,7 @@ public class AudioPlayer : IDisposable
         Debug.WriteLine($"");
         Debug.WriteLine($"========================================");
         Debug.WriteLine($"");
-        
+
         // Show this information only once per session to avoid spam
         if (!_opusWarningShown)
         {
@@ -258,7 +292,7 @@ public class AudioPlayer : IDisposable
     {
         if (string.IsNullOrEmpty(extension))
             return false;
-            
+
         extension = extension.ToLowerInvariant();
         return extension == ".wav" || extension == ".mp3" || extension == ".ogg";
     }
@@ -272,7 +306,7 @@ public class AudioPlayer : IDisposable
     {
         if (string.IsNullOrEmpty(filePath))
             return false;
-            
+
         var extension = Path.GetExtension(filePath);
         return IsSupportedFormat(extension);
     }
@@ -283,10 +317,10 @@ public class AudioPlayer : IDisposable
         {
             _audioFile?.Dispose();
             _audioFile = null;
-            
+
             _vorbisReader?.Dispose();
             _vorbisReader = null;
-            
+
             _wavePlayer?.Dispose();
             _wavePlayer = null;
         }
@@ -304,7 +338,7 @@ public class AudioPlayer : IDisposable
         Debug.WriteLine("AudioPlayer: Disposing...");
         Stop();
         _disposed = true;
-        
+
         Debug.WriteLine("AudioPlayer: Disposed successfully");
     }
 }

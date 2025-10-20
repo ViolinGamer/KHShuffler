@@ -434,13 +434,13 @@ public class EffectManager : IDisposable
 
                 case TwitchEffectType.RandomImage:
                     Debug.WriteLine($"EffectManager: Executing RandomImage");
-                    await ApplyRandomImage(effect.Duration);
+                    ApplyRandomImage(effect.Duration);
                     Debug.WriteLine($"✅ RandomImage execution completed");
                     break;
 
                 case TwitchEffectType.BlacklistGame:
                     Debug.WriteLine($"EffectManager: Executing BlacklistGame");
-                    await ApplyBlacklistGame(effect);
+                    ApplyBlacklistGame(effect);
                     Debug.WriteLine($"✅ BlacklistGame execution completed");
                     break;
 
@@ -465,6 +465,12 @@ public class EffectManager : IDisposable
                 case TwitchEffectType.MirrorMode:
                     Debug.WriteLine($"EffectManager: Executing MirrorMode");
                     ApplyMirrorMode(effect.Duration);
+                    break;
+
+                case TwitchEffectType.GreenScreen:
+                    Debug.WriteLine($"EffectManager: Executing GreenScreen");
+                    ApplyGreenScreen(effect.Duration);
+                    Debug.WriteLine($"✅ GreenScreen execution completed");
                     break;
 
                 default:
@@ -588,7 +594,7 @@ public class EffectManager : IDisposable
         });
     }
 
-    private async Task ApplyRandomImage(TimeSpan duration)
+    private void ApplyRandomImage(TimeSpan duration)
     {
         // Get the current working directory for debugging
         var currentDirectory = Directory.GetCurrentDirectory();
@@ -619,7 +625,7 @@ public class EffectManager : IDisposable
                 Path.Combine(currentDirectory, _settings.ImagesDirectory),
                 Path.Combine(Environment.CurrentDirectory, _settings.ImagesDirectory),
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _settings.ImagesDirectory),
-                Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "", _settings.ImagesDirectory)
+                Path.Combine(System.AppContext.BaseDirectory, _settings.ImagesDirectory)
             };
 
             foreach (var path in possiblePaths)
@@ -696,7 +702,7 @@ public class EffectManager : IDisposable
         }
     }
 
-    private async Task ApplyBlacklistGame(ActiveEffect effect)
+    private void ApplyBlacklistGame(ActiveEffect effect)
     {
         // Get the process name for display (we'll generate a test name if needed)
         string processName;
@@ -1268,6 +1274,113 @@ public class EffectManager : IDisposable
             _mirrorModeEndTime = null;
             Debug.WriteLine("Mirror Mode ended, cleared tracking");
         });
+    }
+
+    private void ApplyGreenScreen(TimeSpan duration)
+    {
+        Debug.WriteLine($"ApplyGreenScreen: Starting green screen effect for {duration.TotalSeconds} seconds");
+
+        try
+        {
+            // Get video files from green screen directory
+            var videoFiles = GetVideoFiles(_settings.GreenScreenDirectory);
+
+            if (videoFiles.Length == 0)
+            {
+                Debug.WriteLine($"No supported video files found in {_settings.GreenScreenDirectory} folder");
+                return;
+            }
+
+            Debug.WriteLine($"ApplyGreenScreen: Found {videoFiles.Length} supported video files in '{_settings.GreenScreenDirectory}' folder");
+
+            // Select a random video file (avoid repeating the last played video)
+            var random = new Random();
+            string selectedVideo;
+
+            if (videoFiles.Length == 1)
+            {
+                // Only one video available
+                selectedVideo = videoFiles[0];
+                Debug.WriteLine("ApplyGreenScreen: Only one video available, using it regardless of repeat");
+            }
+            else
+            {
+                // Multiple videos available - avoid repeating the last one
+                var lastPlayedPath = _overlay?.GetLastPlayedVideoPath();
+                var availableVideos = videoFiles.Where(v => Path.GetFullPath(v) != lastPlayedPath).ToArray();
+
+                if (availableVideos.Length > 0)
+                {
+                    selectedVideo = availableVideos[random.Next(availableVideos.Length)];
+                    Debug.WriteLine($"ApplyGreenScreen: Avoided repeat, selected from {availableVideos.Length} non-repeat options");
+                }
+                else
+                {
+                    // Fallback: all videos were the last played (shouldn't happen with >1 video)
+                    selectedVideo = videoFiles[random.Next(videoFiles.Length)];
+                    Debug.WriteLine("ApplyGreenScreen: Fallback selection (all videos were filtered)");
+                }
+            }
+
+            var fullPath = Path.GetFullPath(selectedVideo);
+
+            Debug.WriteLine($"ApplyGreenScreen: Selected video: {fullPath}");
+
+            // Show green screen video overlay with chroma key
+            try
+            {
+                if (System.Windows.Application.Current != null)
+                {
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        _overlay?.ShowGreenScreenVideo(fullPath, duration);
+                    });
+                }
+                else
+                {
+                    _overlay?.ShowGreenScreenVideo(fullPath, duration);
+                }
+
+                Debug.WriteLine($"ApplyGreenScreen: Successfully displayed green screen video: {Path.GetFileName(fullPath)}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ApplyGreenScreen: Error showing overlay: {ex.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ApplyGreenScreen: Error: {ex.Message}");
+        }
+    }
+
+    private string[] GetVideoFiles(string directory)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                Debug.WriteLine($"GetVideoFiles: Directory '{directory}' does not exist");
+                return Array.Empty<string>();
+            }
+
+            var supportedExtensions = new[] { ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".webm" };
+            var videoFiles = new List<string>();
+
+            foreach (var extension in supportedExtensions)
+            {
+                var files = Directory.GetFiles(directory, $"*{extension}", SearchOption.TopDirectoryOnly);
+                videoFiles.AddRange(files);
+            }
+
+            Debug.WriteLine($"GetVideoFiles: Found {videoFiles.Count} video files in '{directory}'");
+            return videoFiles.ToArray();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"GetVideoFiles: Error scanning directory '{directory}': {ex.Message}");
+            return Array.Empty<string>();
+        }
     }
 
     /// <summary>
